@@ -3,7 +3,7 @@ name: Deploy to Cloud Functions
 on:
   push:
     branches:
-      - main  # Скрипт спрацює лише тоді, коли ти пушиш у гілку main
+      - main
 
 jobs:
   deploy:
@@ -17,13 +17,20 @@ jobs:
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    - name: Deploy Cloud Function
-      uses: google-github-actions/deploy-cloud-functions@v2
-      with:
-        name: school-bot-function
-        runtime: python311
-        region: europe-west1
-        entry_point: telegram_webhook
-        trigger_http: true
-        allow_unauthenticated: true
-        env_vars: BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+    # Встановлюємо офіційний Google Cloud SDK на віртуальну машину GitHub
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    # Запускаємо оригінальну команду деплою для 2nd gen
+    - name: Deploy 2nd Gen Function
+      run: |
+        gcloud functions deploy school-bot-function \
+          --gen2 \
+          --runtime=python311 \
+          --region=europe-west1 \
+          --source=. \
+          --entry-point=telegram_webhook \
+          --trigger-http \
+          --allow-unauthenticated \
+          --memory=512MiB \
+          --set-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}"
