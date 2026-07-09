@@ -1,0 +1,24 @@
+# Локальне віртуальне середовище
+venv/
+env/
+
+# Локальні змінні середовища
+.env
+
+# Захист сервісних ключів (блокуємо тільки потенційні ключі Google/Firebase)
+*key*.json
+*credentials*.json
+firebase-*.json
+
+# Кеш Python та налаштування редактора
+__pycache__/
+.vscode/
+
+# Системні файли Git та конфіги
+.git/
+.gitignore
+.gcloudignore
+
+# Скрипти автоматизації Windows (не потрібні в хмарі)
+*.cmd
+*.ps1
