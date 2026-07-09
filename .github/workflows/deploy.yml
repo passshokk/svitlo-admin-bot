@@ -27,7 +27,7 @@ jobs:
         gcloud functions deploy school-bot-function \
           --gen2 \
           --runtime=python311 \
-          --region=europe-west1 \
+          --region=europe-west3 \
           --source=. \
           --entry-point=telegram_webhook \
           --trigger-http \
