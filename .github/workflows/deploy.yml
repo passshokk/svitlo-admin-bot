@@ -1,0 +1,29 @@
+name: Deploy to Cloud Functions
+
+on:
+  push:
+    branches:
+      - main  # Скрипт спрацює лише тоді, коли ти пушиш у гілку main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Deploy Cloud Function
+      uses: google-github-actions/deploy-cloudfunctions@v2
+      with:
+        name: school-bot-function
+        runtime: python311
+        region: europe-west1
+        entry_point: telegram_webhook
+        trigger_http: true
+        allow_unauthenticated: true
+        env_vars: BOT_TOKEN=${{ secrets.BOT_TOKEN }}
