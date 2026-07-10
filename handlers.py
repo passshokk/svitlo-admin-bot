@@ -16,6 +16,7 @@ import database as db
 import keyboards as kb
 import utils as ut
 import config as cfg
+from task_manager import enqueue_task
 
 # region ROUTER --------------------------------
 
@@ -503,7 +504,11 @@ async def first_ticket_message(message: Message, state: FSMContext):
     await db.create_ticket(ticket_id, message.from_user.id, category, text_content)
 
     # фоновий таск на нагадування
-    asyncio.create_task(ut.sla_timer(str(ticket_id), category, message.bot))
+    await enqueue_task(
+        endpoint="/tasks/sla_check",
+        payload={"ticket_id": str(ticket_id), "category": category},
+        delay_seconds=600
+    )
 
     if not message.text:
         await message.copy_to(chat_id=cfg.CURATOR_GROUP_ID, reply_to_message_id=ticket_id)

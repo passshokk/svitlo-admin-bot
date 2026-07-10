@@ -21,16 +21,13 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
 
-    # Запускаємо оригінальну команду деплою для 2nd gen
-    - name: Deploy 2nd Gen Function
+    # Запускаємо команду деплою для cloud run
+    - name: Deploy to Cloud Run
       run: |
-        gcloud functions deploy school-bot-function \
-          --gen2 \
-          --runtime=python311 \
-          --region=europe-west3 \
-          --source=. \
-          --entry-point=telegram_webhook \
-          --trigger-http \
+        gcloud run deploy svitlo-auth-bot \
+          --source . \
+          --region europe-west3 \
           --allow-unauthenticated \
-          --memory=512MiB \
-          --set-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}"
+          --memory 512Mi \
+          --command "uvicorn main:app --host 0.0.0.0 --port 8080" \
+          --set-env-vars BOT_TOKEN=${{ secrets.BOT_TOKEN }},SERVICE_URL=""

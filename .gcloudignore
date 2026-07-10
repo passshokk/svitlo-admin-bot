@@ -6,9 +6,8 @@ env/
 .env
 
 # Захист сервісних ключів (блокуємо тільки потенційні ключі Google/Firebase)
-*key*.json
-*credentials*.json
-firebase-*.json
+config.py
+*.json
 
 # Кеш Python та налаштування редактора
 __pycache__/
