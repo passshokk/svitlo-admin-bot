@@ -6,8 +6,7 @@ import database as db
 
 class FirestoreStorage(BaseStorage):
     """
-    Кастомний FSM Storage для збереження станів реєстрації 
-    безпосередньо у Firestore (колекція Users).
+    Кастомний FSM Storage для збереження станів реєстрації безпосередньо у Firestore (колекція Users).
     """
     async def set_state(self, key: StorageKey, state: State | str | None = None) -> None:
         state_str = state.state if isinstance(state, State) else state
