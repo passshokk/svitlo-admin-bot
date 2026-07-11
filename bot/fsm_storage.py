@@ -2,7 +2,7 @@
 from typing import Any, Dict, Optional
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.fsm.state import State
-import database as db
+from core import database as db
 
 class FirestoreStorage(BaseStorage):
     """

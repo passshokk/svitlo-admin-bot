@@ -1,3 +1,4 @@
+# task_manager.py
 import os
 import json
 import asyncio
@@ -5,14 +6,13 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
-# Клієнт ініціалізується глобально (перевикористовує з'єднання)
+# Глобальний клієнт (перевикористовує TCP-з'єднання)
 client = tasks_v2.CloudTasksClient()
 
 PROJECT_ID = "svitlo-auth-bot"
 REGION = "europe-west3"
 QUEUE_NAME = "bot-tasks-queue"
 
-# Базовий URL твого сервісу в Cloud Run (потрібно додати в env)
 SERVICE_URL = os.getenv("SERVICE_URL") 
 
 async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
@@ -43,7 +43,7 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
         timestamp.FromDatetime(d)
         task["schedule_time"] = timestamp
 
-    # CloudTasksClient синхронний, обгортаємо виклик у фоновий тред
+    # CloudTasksClient є синхронним, тому обгортаємо в to_thread
     await asyncio.to_thread(
         client.create_task, 
         request={"parent": parent, "task": task}

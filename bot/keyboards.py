@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from context import user_roles_ctx
+from core.context import user_roles_ctx
 
 def get_start_menu() -> InlineKeyboardMarkup:
     buttons = [

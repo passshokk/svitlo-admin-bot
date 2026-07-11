@@ -1,8 +1,8 @@
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
-import database as db
+from core import database as db
 import keyboards as kb
-from context import student_ctx, user_roles_ctx
+from core.context import student_ctx, user_roles_ctx
 from states import Registration
 
 class LoadDataMiddleware(BaseMiddleware):

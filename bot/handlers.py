@@ -8,15 +8,15 @@ from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
 
 from middleware import RequireAuthMiddleware
-from context import student_ctx, user_roles_ctx
+from core.context import student_ctx, user_roles_ctx
 from states import TicketFSM, Registration
 import rbuddy_data as rb
 import prefect_data as pr
-import database as db
+from core import database as db
 import keyboards as kb
-import utils as ut
-import config as cfg
-from task_manager import enqueue_task
+from core import utils as ut
+from core import config as cfg
+from api.task_manager import enqueue_task
 
 # region ROUTER --------------------------------
 
@@ -32,10 +32,10 @@ public_router.callback_query.filter((F.message.chat.type == "private") | (F.mess
 private_router.message.middleware(RequireAuthMiddleware())
 private_router.callback_query.middleware(RequireAuthMiddleware())
 
-router = Router()
-router.include_router(private_router)
-router.include_router(public_router)
-router.include_router(fallback_router)
+tg_router = Router()
+tg_router.include_router(private_router)
+tg_router.include_router(public_router)
+tg_router.include_router(fallback_router)
 
 # endregion ------------------------------------
 # region COMMANDS

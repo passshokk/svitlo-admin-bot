@@ -1,56 +1,59 @@
-import os
+# main.py
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response
-from aiogram import Bot, Dispatcher, types
-from aiogram.client.default import DefaultBotProperties
+from fastapi import FastAPI, Request, Response, Header, HTTPException
+from aiogram import types
 
-from handlers import router
-from middleware import LoadDataMiddleware
-# TODO: from fsm_storage import FirestoreStorage (Додамо на етапi FSM)
+from core.bot_init import bot, dp, WEBHOOK_SECRET
+from bot.handlers import router as tg_router
+from api.task_routes import tasks_router
+from bot.middleware import LoadDataMiddleware
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN is missing in environment variables.")
+# Налаштування логування
+logging.basicConfig(level=logging.INFO)
 
-bot = Bot(
-    token=BOT_TOKEN, 
-    default=DefaultBotProperties(parse_mode="HTML")
-)
-
-# TODO: dp = Dispatcher(storage=FirestoreStorage())
-dp = Dispatcher() 
+# Реєструємо middlewares та хендлери для Telegram
 dp.update.outer_middleware(LoadDataMiddleware())
-dp.include_router(router)
+dp.include_router(tg_router)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("Svitlo Bot backend started")
     yield
+    # Безпечне закриття сесії aiohttp при шатдауні контейнера
+    await bot.session.close()
     logging.info("Svitlo Bot backend shutting down")
 
-app = FastAPI(lifespan=lifespan)
 
-# --- ROUTE 1: TELEGRAM WEBHOOK ---
+app = FastAPI(lifespan=lifespan)
+# Монтуємо роутер Cloud Tasks (всі ендпоінти /tasks/*)
+app.include_router(tasks_router)
+
+
+# Головний роут для вебхуків Telegram
 @app.post("/")
-async def telegram_webhook(request: Request):
+async def telegram_webhook(
+    request: Request,
+    # FastAPI автоматично мапить Header "X-Telegram-Bot-Api-Secret-Token"
+    x_telegram_bot_api_secret_token: str | None = Header(default=None) 
+):
+    # 1. Захист вебхука
+    if x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
+        logging.warning("Unauthorized webhook access attempt")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     try:
         update_data = await request.json()
         update = types.Update(**update_data)
+        
+        # 2. Обробка апдейту. 
+        # Увага:  чекаємо завершення (await), щоб Cloud Run не заморозив CPU.
+        # Важкі таски хендлер має відправляти в Cloud Tasks.
         await dp.feed_update(bot, update)
+        
         return Response(status_code=200)
     except Exception as e:
         logging.error(f"Webhook processing error: {e}")
+        # Завжди повертаємо 200, щоб Telegram не спамив ретраями при 500-х помилках
         return Response(status_code=200)
-
-# --- ROUTE 2: CLOUD TASKS (AI VALIDATION) ---
-@app.post("/tasks/ai_validation")
-async def task_ai_validation(request: Request):
-    # Тут буде логіка валідації OIDC токена та виклик OpenAI
-    return Response(status_code=200)
-
-# --- ROUTE 3: CLOUD TASKS (SLA TIMER) ---
-@app.post("/tasks/sla_check")
-async def task_sla_check(request: Request):
-    # Тут буде логіка перевірки статусу тікета з Firestore
-    return Response(status_code=200)

@@ -1,11 +1,8 @@
-import asyncio
 from datetime import datetime
 import os
 from zoneinfo import ZoneInfo
 import httpx
 
-import database as db
-import handlers as hd
 import config as cfg
 
 def get_profile_text(data: dict) -> str:
@@ -43,19 +40,6 @@ def get_profile_text(data: dict) -> str:
         f"{roles_text}\n\n"
         f"<b>Account verified</b> in @svitlo_admin_bot"
     )
-
-async def sla_timer(ticket_id: str, category: str, bot):
-    """Фонова задача: прокидається через 10 хвилин і перевіряє статус"""
-    await asyncio.sleep(600) 
-    ticket_data = await db.get_ticket(ticket_id)
-
-    if ticket_data and ticket_data.get('status') == 'open':
-        await bot.send_message(
-            chat_id=cfg.CURATOR_GROUP_ID,
-            text=f"<b>🚨 SLA TRIGGERED! {cfg.MAIN_CURATOR_USERNAME}</b>\nТікет <code>#{ticket_id}</code> [Категорія: {category}] ніхто не взяв у роботу протягом 10 хвилин!",
-            parse_mode="HTML",
-            reply_to_message_id=int(ticket_id)
-        )
 
 # ====================================================================================
 

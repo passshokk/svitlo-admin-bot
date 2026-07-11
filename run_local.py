@@ -3,8 +3,8 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from handlers import router
-from middleware import LoadDataMiddleware
+from bot.handlers import router
+from bot.middleware import LoadDataMiddleware
 from dotenv import load_dotenv
 
 load_dotenv()
