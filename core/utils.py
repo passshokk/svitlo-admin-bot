@@ -3,7 +3,7 @@ import os
 from zoneinfo import ZoneInfo
 import httpx
 
-import config as cfg
+from core import config as cfg
 
 def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""

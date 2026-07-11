@@ -1,9 +1,9 @@
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 from core import database as db
-import keyboards as kb
+from bot import keyboards as kb
 from core.context import student_ctx, user_roles_ctx
-from states import Registration
+from bot.states import Registration
 
 class LoadDataMiddleware(BaseMiddleware):
     """Глобальний мідлвейр: просто дістає дані з БД і кладе в контекст"""

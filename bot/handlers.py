@@ -7,13 +7,13 @@ import re
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
 
-from middleware import RequireAuthMiddleware
+from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
-from states import TicketFSM, Registration
-import rbuddy_data as rb
-import prefect_data as pr
+from bot.states import TicketFSM, Registration
+from bot import rbuddy_data as rb
+from bot import prefect_data as pr
 from core import database as db
-import keyboards as kb
+from bot import keyboards as kb
 from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
