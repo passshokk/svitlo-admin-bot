@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import os
 from zoneinfo import ZoneInfo
 import httpx
 
@@ -59,7 +60,10 @@ async def sla_timer(ticket_id: str, category: str, bot):
 # ====================================================================================
 
 # токен з налаштувань інтеграції Notion - https://app.notion.com/developers/connections
-NOTION_TOKEN = "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"
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+if not NOTION_TOKEN:
+    raise ValueError("NOTION_TOKEN is missing in environment variables.")
+
 # ID бази даних (рядок символів з URL між / і ?)
 DATABASE_ID = "384f78e184b380b3858ee57ad13f2b54"
 

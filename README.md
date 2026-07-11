@@ -59,20 +59,27 @@ gcloud functions deploy school-bot-function \
 ## Local Development Setup
 
 1. Clone the repository:
+
 ```bash
 git clone [https://github.com/passshokk/svitlo-admin-bot.git](https://github.com/passshokk/svitlo-admin-bot.git)
 cd svitlo-admin-bot
 ```
+
 2. Create and activate a virtual environment:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
+
 3. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
+
 4. Create a .env file for local testing (never commit this file):
+
 ```bash
 BOT_TOKEN=your_telegram_bot_token
 ```
@@ -82,8 +89,11 @@ Maintained by the Svitlo School IT Department.
 ---
 
 ### How to send a file to Git:
+
 Run the standard commands in the VS Code terminal:
+
 ```bash
 git add README.md
-git commit -m "Add professional English README.md"
+git commit -m "Added high-standard README.md!"
 git push
+```
