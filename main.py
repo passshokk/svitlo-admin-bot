@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, Response, Header, HTTPException
 from aiogram import types
 
 from core.bot_init import bot, dp, WEBHOOK_SECRET
-from bot.handlers import router as tg_router
+from bot.handlers import tg_router
 from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware
 
