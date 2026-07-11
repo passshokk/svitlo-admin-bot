@@ -29,4 +29,5 @@ jobs:
           --region europe-west3 \
           --allow-unauthenticated \
           --memory 512Mi \
+          --clear-command \
           --set-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}",SERVICE_URL="https://svitlo-auth-bot-956835627561.europe-west3.run.app"
