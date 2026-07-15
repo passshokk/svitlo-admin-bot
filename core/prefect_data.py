@@ -26,7 +26,7 @@ PREFECTS_OLDER_SCHEDULE = {
         {"lesson_btn": "18:00 UN Model", "lesson_full": "UN Model", "prefect": "𝓚𝓲𝓻𝓪 𝓑𝓸𝔂𝓪𝓻𝓬𝓱𝓾𝓴𝓸𝓿𝓪", "username": "@Werewolf_Fenrir"},
         {"lesson_btn": "18:00 Book club", "lesson_full": "Book club", "prefect": "Daria Matsiura", "username": "@rotentar"},
         {"lesson_btn": "19:00 Reading Buddy", "lesson_full": "Reading Buddy", "prefect": "Galina Chakmakly", "username": "@galina_chakmakly"},
-        {"lesson_btn": "19:00 ESOL - Grammar", "lesson_full": "ESOL - Grammar", "prefect": "Marharyta Bartnychuk", "username": "@margaaritkaaa"},
+        {"lesson_btn": "19:00 ESOL - Grammar", "lesson_full": "ESOL - Grammar", "prefect": "Marharyta Bartnychuk", "username": "@mbartny"},
         {"lesson_btn": "20:00 Svitlo News Club", "lesson_full": "Svitlo News Club", "prefect": "Arina Bilan", "username": "@arina_rianna21"},
         {"lesson_btn": "20:00 Maths", "lesson_full": "Maths", "prefect": "Antonia Rudenko", "username": "@brssvch"}
     ],

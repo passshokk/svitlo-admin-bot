@@ -6,3 +6,11 @@ class TicketFSM(StatesGroup):
 
 class Registration(StatesGroup):
     waiting_email = State()
+
+    # Нова лінійна воронка
+    entering_full_name = State()
+    entering_age = State()
+    entering_email = State()
+    entering_phone = State()
+    passing_rules = State()
+    uploading_docs = State()

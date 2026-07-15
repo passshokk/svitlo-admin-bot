@@ -17,7 +17,28 @@ db = firestore.AsyncClient()
 # ==========================
 # region --- Registration Workflow
 
+async def init_lead(tg_id: int, username: str):
+    """Створює базовий документ ліда при /start, якщо його ще немає."""
+    doc_ref = db.collection('Svitlo').document(str(tg_id))
+    doc = await doc_ref.get()
+    
+    if not doc.exists:
+        await doc_ref.set({
+            "telegramId": tg_id,
+            "username": username or "",
+            "status": "lead",
+            "crm_stage": "onboarding",
+            "roles": [],
+            "created_at": get_kyivtime_now()
+        })
 
+async def save_lead_profile(tg_id: int, personal_data: dict, next_crm_stage: str):
+    """Зберігає зібрані дані та переводить ліда на наступний етап."""
+    await db.collection('Svitlo').document(str(tg_id)).set({
+        "personal_info": personal_data,
+        "crm_stage": next_crm_stage,
+        "crm_stage_updated_at": get_kyivtime_now()
+    }, merge=True)
 
 # endregion
 
@@ -55,17 +76,9 @@ async def grant_house_access(doc_id: str):
 # ==========================
 # region --- User Email State DB
 
-async def set_custom_state(tg_id: int, state: str):
+async def set_custom_state(tg_id: int, state: str): # для повідомлення про оновлення бази перед новим семестром
     await db.collection('BotUsers').document(str(tg_id)).set({'custom_state': state}, merge=True)
 
-async def set_house_attempts(tg_id: int, attempts: int):
-    await db.collection('BotUsers').document(str(tg_id)).set({'house_attempts': attempts}, merge=True)
-
-async def get_house_attempts(tg_id: int) -> int:
-    doc = await db.collection('BotUsers').document(str(tg_id)).get()
-    if doc.exists:
-        return doc.to_dict().get('house_attempts', 0) 
-    return 0
 
 # endregion
 

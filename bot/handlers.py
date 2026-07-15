@@ -1,3 +1,4 @@
+# bot/handlers.py
 import asyncio
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
@@ -10,32 +11,53 @@ from zoneinfo import ZoneInfo
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
 from bot.states import TicketFSM, Registration
-from bot import rbuddy_data as rb
-from bot import prefect_data as pr
+from core import rbuddy_data as rb
+from core import prefect_data as pr
 from core import database as db
 from bot import keyboards as kb
 from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
+from bot.reg_funnel import reg_router
 
 # region ROUTER --------------------------------
 
 public_router = Router()
 private_router = Router()
 fallback_router = Router()
+javis = Router()
+
+DEV_IDS = [1125108435]
 
 private_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 private_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
+# Фільтр: пускати в dev_router ТІЛЬКИ розробників
+javis.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
+javis.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
 
 private_router.message.middleware(RequireAuthMiddleware())
 private_router.callback_query.middleware(RequireAuthMiddleware())
 
+# MAIN ROUTER AGGREGATOR & HIERARCHY
 tg_router = Router()
+
+#1. Розробницький роутер (для тестів)
+tg_router.include_router(javis)
+
+# 2. Воронка реєстрації - поки на тесті
+tg_router.include_router(reg_router)
+
+# 3. ПРИВАТНИЙ: Лише авторизовані студенти
 tg_router.include_router(private_router)
+
+# 4. ПУБЛІЧНИЙ: Доступний для всіх
 tg_router.include_router(public_router)
+
+# 5. СТРОГО ОСТАННІМ: Фолбеки (невідомі команди, незрозумілий текст)
 tg_router.include_router(fallback_router)
+
 
 # endregion ------------------------------------
 # region COMMANDS
@@ -221,22 +243,8 @@ async def show_socials(callback: CallbackQuery):
         reply_markup=kb.get_socials_kb()
     )
 
-@public_router.callback_query(F.data == "help")
-async def show_help(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.edit_text(
-        "Виникли запитання? Напишіть нашому куратору ⬇️",
-        reply_markup=kb.get_help_keyboard()
-    )
-
 @public_router.callback_query(F.data == "support_menu")
 async def start_support_inline(callback: CallbackQuery, state: FSMContext):
-    roles_str = user_roles_ctx.get()
-    roles_list = roles_str.split('|')
-    if "itt" not in roles_list and "scl" not in roles_list:
-        await callback.answer("⛔️ Ця функція зараз на етапі альфа-тестування (доступна лише для ITT департаменту та Student CounciL)", show_alert=True)
-        return
-
     active_ticket = await db.get_active_ticket(callback.from_user.id)
     if active_ticket:
         await callback.answer("Ти вже маєш відкритий запит! 😉 Пиши прямо сюди, у чат", show_alert=True)

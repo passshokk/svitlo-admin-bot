@@ -16,7 +16,15 @@ class LoadDataMiddleware(BaseMiddleware):
 
         if user:
             user_id = user.id
-            student = await db.get_student_by_tg_id(user_id)
+            student = None
+            
+            # 1. Пряме читання (нові ліди або студенти з doc_id == tg_id)
+            doc = await db.db.collection('Svitlo').document(str(user_id)).get()
+            if doc.exists:
+                student = {"id": doc.id, "data": doc.to_dict()}
+            else:
+                # 2. Фолбек (старі студенти з автозгенерованим Rowy doc_id)
+                student = await db.get_student_by_tg_id(user.id)
             
             s_token = student_ctx.set(student)
             r_token = user_roles_ctx.set(student['data'].get('roles', 'student') if student else "")
