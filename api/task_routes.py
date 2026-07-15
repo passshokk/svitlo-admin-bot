@@ -26,8 +26,8 @@ async def task_sla_check(request: Request):
             await bot.send_message(
                 chat_id=cfg.CURATOR_GROUP_ID,
                 text=(
-                    f"<b>🚨 SLA TRIGGERED! {cfg.MAIN_CURATOR_USERNAME}</b>\n"
-                    f"Тікет <code>#{ticket_id}</code> [Категорія: {category}] висить 10 хв без відповіді!"
+                    f"<b>🚨 {cfg.MAIN_CURATOR_USERNAME} 🚨</b>\n"
+                    f"Тікет <code>#{ticket_id:05}</code> [Категорія: {category}] висить 10 хв без відповіді!"
                 ),
                 parse_mode="HTML",
                 reply_to_message_id=int(ticket_id)

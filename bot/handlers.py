@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 import re
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
+from uvicorn import logging
 
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
@@ -510,7 +511,8 @@ async def first_ticket_message(message: Message, state: FSMContext):
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
     await db.create_ticket(ticket_id, message.from_user.id, category, text_content)
-
+    logging.info(f"Ticket #{ticket_id} created by user {message.from_user.id}")
+    
     # фоновий таск на нагадування
     await enqueue_task(
         endpoint="/tasks/sla_check",

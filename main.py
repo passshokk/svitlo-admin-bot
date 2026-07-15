@@ -9,8 +9,16 @@ from bot.handlers import tg_router
 from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware
 
-# Налаштування логування
+# === БЛОК ЛОГУВАННЯ ===
+# Залишаємо INFO як базовий рівень для кастомних логів
 logging.basicConfig(level=logging.INFO)
+
+# Глушимо спам від uvicorn (HTTP запити)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+# Глушимо спам від aiogram (Update is handled / is not handled)
+logging.getLogger("aiogram.event").setLevel(logging.WARNING)
+# ================================
 
 # Реєструємо middlewares та хендлери для Telegram
 dp.update.outer_middleware(LoadDataMiddleware())
