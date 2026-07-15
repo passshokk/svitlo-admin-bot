@@ -13,6 +13,7 @@ HOUSE_CHATS = {
 CURATOR_GROUP_ID = -1004393635348
 MAIN_CURATOR_USERNAME = "@passshokk"
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+PHONE_REGEX = r'^\+[1-9]\d{7,14}$'
 
 ROLE_MAP = {
     "itt": "💻 ITT member",

@@ -1,3 +1,4 @@
+# core/database.py
 import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -82,13 +83,18 @@ async def init_lead(tg_id: int, username: str):
             "created_at": get_kyivtime_now()
         })
 
-async def save_lead_profile(tg_id: int, personal_data: dict, next_crm_stage: str):
-    """Зберігає зібрані дані та переводить ліда на наступний етап."""
-    await db.collection('Svitlo').document(str(tg_id)).set({
-        "personal_info": personal_data,
+async def save_lead_profile(doc_id: str, personal_data: dict, next_crm_stage: str):
+    """Зберігає зібрані дані в КОРІНЬ документа (для сумісності з Rowy) та переводить етап."""
+    payload = {
+        "name": personal_data.get("first_name", ""),
+        "surname": personal_data.get("last_name", ""),
+        "age": personal_data.get("age"),
+        "email": personal_data.get("email"),
+        "phone": personal_data.get("phone"),
         "crm_stage": next_crm_stage,
         "crm_stage_updated_at": get_kyivtime_now()
-    }, merge=True)
+    }
+    await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
 
 # endregion
 

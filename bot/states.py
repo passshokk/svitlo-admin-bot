@@ -8,7 +8,8 @@ class Registration(StatesGroup):
     waiting_email = State()
 
     # Нова лінійна воронка
-    entering_full_name = State()
+    entering_first_name = State()
+    entering_last_name = State()
     entering_age = State()
     entering_email = State()
     entering_phone = State()

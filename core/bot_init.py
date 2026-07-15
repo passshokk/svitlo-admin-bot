@@ -2,7 +2,7 @@
 import os
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-# TODO: from fsm_storage import FirestoreStorage
+from bot.fsm_storage import FirestoreStorage
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 # Секретний токен для валідації запитів від Telegram
@@ -19,5 +19,4 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode="HTML")
 )
 
-# TODO: dp = Dispatcher(storage=FirestoreStorage())
-dp = Dispatcher()
+dp = Dispatcher(storage=FirestoreStorage())

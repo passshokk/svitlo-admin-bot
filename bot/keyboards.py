@@ -1,3 +1,4 @@
+# bot/keyboards.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from core.context import user_roles_ctx
@@ -9,8 +10,15 @@ def get_start_menu() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def get_guest_start_menu() -> InlineKeyboardMarkup:
+    """Стартове меню для неідентифікованих користувачів (без telegramId)"""
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🎓 Я вже студент Svitlo", callback_data="auth_existing"))
+    builder.row(InlineKeyboardButton(text="📝 Хочу зареєструватись", callback_data="auth_new_lead"))
+    return builder.as_markup()
+
 # ==========================
-# region --- Svitlo Menu
+# region --- /menu
 
 def get_main_menu() -> InlineKeyboardMarkup:
     roles_str = user_roles_ctx.get()
@@ -74,6 +82,13 @@ def get_help_keyboard() -> InlineKeyboardMarkup:
 
 # ==========================
 # region --- Operational Buttons
+
+def get_number_for_registration_kb() -> ReplyKeyboardMarkup:
+    """Кнопка для швидкої відправки номера телефону"""
+    buttons = [
+        [KeyboardButton(text="📱 Поділитися номером", request_contact=True)]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_cancel_kb() -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text="❌ Скасувати")]]
