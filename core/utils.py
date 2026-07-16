@@ -19,14 +19,14 @@ def get_profile_text(data: dict) -> str:
     else:
         joined = f"in {sem.split('_')[0]} semester 20{sem.split('_')[2]}"
         
-    raw_roles = data.get("roles")
-    user_roles = [r for r in raw_roles.split("|")]
+    user_roles = data.get("roles", [])
 
     roles_list = []
     for role_key in cfg.ROLE_MAP.keys():
         if role_key in user_roles:
             roles_list.append(cfg.ROLE_MAP[role_key])
-    roles_text = "\n".join(roles_list)
+            
+    roles_text = "\n".join(roles_list) if roles_list else "Немає призначених ролей"
 
     return (
         f"<code>YOUR SVITLO PROFILE</code>\n\n"

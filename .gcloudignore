@@ -12,6 +12,7 @@ env/
 __pycache__/
 .vscode/
 webhook_setup.py
+db_migration.py
 
 # Системні файли Git та конфіги
 .git/

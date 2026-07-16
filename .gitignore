@@ -9,7 +9,8 @@ env/
 # Кеш Python та налаштування VS Code
 __pycache__/
 .vscode/
-webhook_setup.py
+webhook_setup.
+db_migration.py
 
 # Локальні скрипти автоматизації Windows, які не потрібні в хмарі
 *.cmd

@@ -27,7 +27,8 @@ class LoadDataMiddleware(BaseMiddleware):
                 student = await db.get_student_by_tg_id(user.id)
             
             s_token = student_ctx.set(student)
-            r_token = user_roles_ctx.set(student['data'].get('roles', 'student') if student else "")
+            roles = student['data'].get('roles', []) if student else []
+            r_token = user_roles_ctx.set(roles)
             
             try:
                 return await handler(event, data)

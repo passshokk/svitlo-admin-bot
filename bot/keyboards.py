@@ -21,8 +21,7 @@ def get_guest_start_menu() -> InlineKeyboardMarkup:
 # region --- /menu
 
 def get_main_menu() -> InlineKeyboardMarkup:
-    roles_str = user_roles_ctx.get()
-    roles_list = roles_str.split('|')
+    roles_list = user_roles_ctx.get()
     
     builder = InlineKeyboardBuilder()
     builder.button(text="🎓 Your Svitlo Profile", callback_data="my_profile")

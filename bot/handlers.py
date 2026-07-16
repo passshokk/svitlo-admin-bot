@@ -562,7 +562,7 @@ async def process_email_input(message: Message, state: FSMContext):
             await db.link_telegram_id(student['id'], user_id)
 
             student_ctx.set(student)
-            user_roles_ctx.set(data.get('roles', 'student'))
+            user_roles_ctx.set(data.get('roles', []))
 
             await message.answer("✅ <b>Твій акаунт успішно синхронізовано</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
             await message.answer("<b>Вітаю у SvitloMenu!</b> Вибирай:", reply_markup=kb.get_main_menu())
@@ -585,7 +585,7 @@ async def process_email_input(message: Message, state: FSMContext):
         await db.grant_access_to_student(student['id'], user_id)
 
         student_ctx.set(student)
-        user_roles_ctx.set(data.get('roles', 'student'))
+        user_roles_ctx.set(data.get('roles', []))
 
         await state.clear()
         
