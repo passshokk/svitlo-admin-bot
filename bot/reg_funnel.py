@@ -17,7 +17,7 @@ DEV_IDS = [1125108435]
 
 reg_router = Router()
 reg_router.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
-reg_router.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
+reg_router.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.message.chat.type == "private")
 
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---
@@ -30,15 +30,16 @@ async def cmd_start(message: Message, state: FSMContext):
     if student and student_stage in ['student', 'alumni']:
         # Студент вже ідентифікований (має прив'язаний telegramId)
         await message.answer(
-            "Привіт! Я твій помічник у SvitloSchool ☺️\n<b>Ти вже є в загальному чаті своєї вікової групи?</b>",
+            "Привіт! Я — твій помічник у SvitloSchool ☺️\n<b>Ти вже є в загальному чаті своєї вікової групи?</b>",
             parse_mode="HTML",
             reply_markup=kb.get_start_menu()
         )
     else: 
         # Невідомий користувач (старий студент без ТГ або новий лід)
         await message.answer(
-            "👋 Привіт! Я — офіційний бот SvitloSchool.\n\n"
-            "Обери свій статус, щоб ми могли продовжити:",
+            "👋 Привіт! Я — офіційний бот SvitloSchool.\n"
+            "<b>Обери свій статус, щоб ми могли продовжити:</b>",
+            parse_mode="HTML",
             reply_markup=kb.get_guest_start_menu()
         )
 
