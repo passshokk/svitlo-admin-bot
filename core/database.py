@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # Initialize a TTL cache for storing frequently accessed data
-student_cache = TTLCache(maxsize=1024, ttl=300)  # Cache up to 1024 items for 5 minutes
+student_cache = TTLCache(maxsize=1024, ttl=120)  # Cache up to 1024 items for 2 minutes
 
 def get_kyivtime_now():
     kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
@@ -22,23 +22,17 @@ db = firestore.AsyncClient()
 # ==========================
 # region --- Main Svitlo DB
 
-async def get_student_by_tg_id(tg_id: int):
+async def get_student_by_tg_id(tg_id: int) -> dict | None:
+    """Пошук документа в колекції Svitlo за полем telegramId"""
     if tg_id in student_cache:
         return student_cache[tg_id]
     
-    doc_ref = db.collection('Svitlo').document(str(tg_id))
-    doc = await doc_ref.get()
-    
     student_data = None
-    if doc.exists:
-        student_data = {"id": doc.id, "data": doc.to_dict()}
-    else:
-        # Фолбек на пошук за полем
-        query = db.collection('Svitlo').where(filter=FieldFilter('telegramId', '==', tg_id)).limit(1).stream()
-        async for doc_item in query:
-            student_data = {"id": doc_item.id, "data": doc_item.to_dict()}
-            break
-    
+    query = db.collection('Svitlo').where(filter=FieldFilter('telegramId', '==', tg_id)).limit(1).stream()
+    async for d in query:
+        student_data = {"id": d.id, "data": d.to_dict()}
+        break
+
     student_cache[tg_id] = student_data # Записуємо в кеш
     return student_data
 
@@ -58,6 +52,7 @@ async def grant_access_to_student(doc_id: str, tg_id: int):
 
 async def link_telegram_id(doc_id: str, tg_id: int):
     await db.collection('Svitlo').document(doc_id).update({'telegramId': tg_id})
+    student_cache.pop(tg_id, None) # Видаляємо ключ з об'єкта кешу
 
 async def grant_house_access(doc_id: str):
     """Ставить прапорець, що юзер вже отримав лінк на свій Хаус."""
@@ -68,33 +63,107 @@ async def grant_house_access(doc_id: str):
 # ==========================
 # region --- Registration Workflow
 
-async def init_lead(tg_id: int, username: str):
-    """Створює базовий документ ліда при /start, якщо його ще немає."""
-    doc_ref = db.collection('Svitlo').document(str(tg_id))
-    doc = await doc_ref.get()
+async def init_lead(tg_id: int, username: str | None) -> str:
+    """
+    Створює новий документ ліда з автогенерованим ID.
+    Ініціалізує всі колонки профілю студента (Flat Schema) в Firebase з видимістю в Rowy.
+    """
+    existing = await get_student_by_tg_id(tg_id)
+    if existing:
+        return existing['id']
+        
+    doc_ref = db.collection('Svitlo').document() # Автогенерація ID
+    now = get_kyivtime_now()
     
-    if not doc.exists:
-        await doc_ref.set({
-            "telegramId": tg_id,
-            "username": username or "",
-            "status": "lead",
-            "crm_stage": "onboarding",
-            "roles": [],
-            "created_at": get_kyivtime_now()
-        })
-
-async def save_lead_profile(doc_id: str, personal_data: dict, next_crm_stage: str):
-    """Зберігає зібрані дані в КОРІНЬ документа (для сумісності з Rowy) та переводить етап."""
     payload = {
-        "name": personal_data.get("first_name", ""),
-        "surname": personal_data.get("last_name", ""),
-        "age": personal_data.get("age"),
-        "email": personal_data.get("email"),
-        "phone": personal_data.get("phone"),
+        # ⚙️ System & Tracking
+        "telegramId": tg_id,
+        "username": username or "",
+        "crm_stage": "lead",
+        "created_at": now,
+        "crm_stage_updated_at": now,
+        "onboarding_followup_sent": 0,
+        
+        # 👤 Student Info
+        "name": "",
+        "surname": "",
+        "email": "",
+        "phone": "",
+        "gender": "",
+        "dateOfBirth": "", 
+        "ageGroup": "",
+        
+        # 📍 Location & Education
+        "location": "",
+        "ed_institution_name": "",
+        
+        # 👨‍👩‍👧 Parents / Guardians
+        "parent_name": "",
+        "parent_email": "",
+        "parent_phone": "",
+        
+        # 🏥 Health & Marketing
+        "lead_source": "",
+        "health_issues_bool": False,
+        "health_issues_details": "",
+
+        # 🤖 AI Verification
+        "ai_doc_valid": False,
+        "ai_doc_type": "",
+
+        # 🔐 Access & Roles
+        "groupAccess": False,
+        "houseAccess": False,
+        "house": "Newbie",
+        "roles": []
+    }
+    await doc_ref.set(payload)
+    # Оновлюємо кеш, щоб Middleware миттєво побачив нового ліда
+    student_cache[tg_id] = {"id": doc_ref.id, "data": doc_ref.get().to_dict()}
+    
+    return doc_ref.id
+
+# core/database.py (фрагмент)
+
+async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
+    """
+    Зберігає всі зібрані дані воронки у корінь документа Firebase (Flat Schema)
+    та переводить ліда на наступний етап.
+    """
+    payload = {
+        "name": data.get("first_name", ""),
+        "surname": data.get("last_name", ""),
+        "email": data.get("email", ""),
+        "phone": data.get("phone", ""),
+        "gender": data.get("gender", ""),
+        "dateOfBirth": data.get("dateOfBirth", ""),
+        "ageGroup": data.get("ageGroup", ""),
+        "location": data.get("location", ""),
+        "ed_institution_name": data.get("school", ""),
+        "parent_name": data.get("parent_name", ""),
+        "parent_email": data.get("parent_email", ""),
+        "parent_phone": data.get("parent_phone", ""),
+        "lead_source": data.get("lead_source", ""),
+        "health_issues_bool": data.get("health_bool", False),
+        "health_issues_details": data.get("health_details", ""),
+        
         "crm_stage": next_crm_stage,
         "crm_stage_updated_at": get_kyivtime_now()
     }
-    await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
+    
+    # Видаляємо пусті ключі, щоб не перезаписати випадково існуючі None/дефолти
+    clean_payload = {k: v for k, v in payload.items() if v != ""}
+    await db.collection('Svitlo').document(doc_id).set(clean_payload, merge=True)
+
+async def update_crm_stage(doc_id: str, next_crm_stage: str):
+    """
+    Оновлює timestamp останньої активності ліда.
+    Використовується для таймера Follow-up задач у Cloud Tasks.
+    """
+    await db.collection('Svitlo').document(doc_id).update({
+        "crm_stage_updated_at": get_kyivtime_now(),
+        "crm_stage": next_crm_stage
+    })
 
 # endregion
 

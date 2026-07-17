@@ -143,23 +143,27 @@ async def reg_for_access(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.answer()
     await state.set_state(Registration.waiting_email)
-    await callback.message.edit_text("<b>Процес реєстрації:</b>", parse_mode="HTML")
+    await callback.message.edit_text("🔐 <b>Процес отримання доступу до групи</b>", parse_mode="HTML")
     await callback.message.answer(
-        "🔐 Для отримання доступу, будь ласка, напиши свою електронну пошту, яку ти вказував при реєстрації в SvitloSchool:",
+        "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації в SvitloSchool:",
+        parse_mode="HTML",
         reply_markup=kb.get_cancel_kb()
     )
 
 @public_router.callback_query(F.data == "verify")
 async def verify_for_access(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     student = student_ctx.get()
-    if student:
-        await callback.answer()
-        await callback.message.edit_text("Вітаю у SvitloMenu! Обирай:", reply_markup=kb.get_main_menu())
-    else:
-        await callback.answer()
+
+    # 1. Юзера взагалі немає в БД (старий зі SchoolToday) -> Відправляємо на лінковку
+    if not student:
         await state.set_state(Registration.waiting_email)
-        await callback.message.edit_text("<b>Щоб користуватись повним функціоналом, синхронізуй акаунт</b>")
-        await callback.message.answer("🔐 Напиши свою електронну пошту, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_cancel_kb())
+        await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>", parse_mode="HTML")
+        await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+        return
+    
+    # 2. Юзер - повноцінний студент або стаф -> Пускаємо в меню
+    await callback.message.edit_text("Вітаю у SvitloMenu! Обирай:", reply_markup=kb.get_main_menu())
 
 @public_router.callback_query(F.data == "main_menu")
 async def clbck_menu(callback: CallbackQuery):
@@ -199,7 +203,7 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     house_name = data.get("house")
     
     if not house_name or house_name == "Newbie":
-        await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", parse_mode="HTML")
+        await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", parse_mode="HTML", reply_markup=kb.get_main_menu())
         return
 
     if data.get("houseAccess", False):

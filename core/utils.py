@@ -9,7 +9,18 @@ def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""
     full_name = f"{data.get('name', 'Невідомо')} {data.get('surname', '')}".strip()
     email = data.get("email", "Немає")
-    dob = data.get("dateOfBirth").astimezone(ZoneInfo("Europe/Kyiv")).strftime("%d %B %Y")
+    
+    dob_raw = data.get("dateOfBirth")
+    if isinstance(dob_raw, str) and dob_raw:
+        dob = dob_raw
+    elif dob_raw:
+        try:
+            dob = dob_raw.astimezone(ZoneInfo("Europe/Kyiv")).strftime("%d %B %Y")
+        except Exception:
+            dob = str(dob_raw)
+    else:
+        dob = "Не вказано"
+
     group = "Older (14-18)" if data.get("ageGroup", "Не визначено") == "older" else "Younger (10-13)"
     house = data.get("house", "Ще не розподілено")
 

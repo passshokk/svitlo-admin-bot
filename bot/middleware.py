@@ -1,12 +1,14 @@
+# bot/middleware.py
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 from core import database as db
 from bot import keyboards as kb
 from core.context import student_ctx, user_roles_ctx
 from bot.states import Registration
+from aiogram.fsm.context import FSMContext
 
 class LoadDataMiddleware(BaseMiddleware):
-    """Глобальний мідлвейр: просто дістає дані з БД і кладе в контекст"""
+    """Глобальний мідлвейр: пошук користувача в БД за полем telegramId."""
     async def __call__(self, handler, event: TelegramObject, data: dict):
         user = None
         if event.message:
@@ -15,16 +17,7 @@ class LoadDataMiddleware(BaseMiddleware):
             user = event.callback_query.from_user
 
         if user:
-            user_id = user.id
-            student = None
-            
-            # 1. Пряме читання (нові ліди або студенти з doc_id == tg_id)
-            doc = await db.db.collection('Svitlo').document(str(user_id)).get()
-            if doc.exists:
-                student = {"id": doc.id, "data": doc.to_dict()}
-            else:
-                # 2. Фолбек (старі студенти з автозгенерованим Rowy doc_id)
-                student = await db.get_student_by_tg_id(user.id)
+            student = await db.get_student_by_tg_id(user.id)
             
             s_token = student_ctx.set(student)
             roles = student['data'].get('roles', []) if student else []
@@ -40,24 +33,57 @@ class LoadDataMiddleware(BaseMiddleware):
 
 
 class RequireAuthMiddleware(BaseMiddleware):
-    """Охоронець: пускає тільки тих, хто є в базі, інакше — фолбек"""
+    """
+    Фільтрує доступ до приватних роутерів.
+    Невідомих юзерів відправляє на синхронізацію пошти.
+    Лідів (у процесі реєстрації) — блокує.
+    """
     async def __call__(self, handler, event: TelegramObject, data: dict):
-        # Дістаємо студента з нашої кишені (БД вже не чіпаємо)
         student = student_ctx.get()
+        user_roles = user_roles_ctx.get()
         
-        if student:
-            # Юзер авторизований — працює хендлер
-            return await handler(event, data)
-        else:
-            # Юзера немає в базі - робимо фолбек і просимо email
-            msg = event.message if isinstance(event, CallbackQuery) else event
-            state = data.get("state")
-            
-            if isinstance(event, CallbackQuery):
-                await event.answer()
-                
-            await state.set_state(Registration.waiting_email)
-            await msg.answer("<b>Щоб користуватись повним функціоналом, синхронізуй акаунт</b>", parse_mode="HTML")
-            await msg.answer("🔐 Напиши свою електронну пошту, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_cancel_kb())
-            return
+        # 1. Юзера взагалі немає в базі -> Фолбек на синхронізацію
+        if not student:
+            return await self._prompt_sync(event, data)
 
+        student_data = dict(student.get('data', {}))
+        crm_stage = student_data.get('crm_stage')
+
+        # 2. Перевірка доступу (Студенти + Ролі)
+        allowed_stages = ['student', 'alumni']
+        allowed_roles = ['boss', 'curator', 'teacher', 'admin']
+
+        is_student = crm_stage in allowed_stages
+        is_roles = any(role in user_roles for role in allowed_roles)
+
+        if is_student or is_roles:
+            return await handler(event, data)
+        
+        # 3. Юзер є в базі, але він ще лід/на етапі реєстрації -> Заборона
+        return await self._reject_access(event)
+
+    async def _prompt_sync(self, event: TelegramObject, data: dict):
+        """Хендлер для неідентифікованих (Просимо email)"""
+        state: FSMContext = data.get("state")
+        await state.set_state(Registration.waiting_email)
+
+        text_1 = "<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>"
+        text_2 = "Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:"
+
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+            await event.message.edit_text(text_1, parse_mode="HTML")
+            await event.message.answer(text_2, parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+        elif isinstance(event, Message):
+            await event.answer(text_1, parse_mode="HTML")
+            await event.answer(text_2, parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+            
+        return
+
+    async def _reject_access(self, event: TelegramObject):
+        """Хендлер для лідів, які ще не завершили реєстрацію"""
+        if isinstance(event, Message):
+            await event.answer("⚠️ <b>Доступ лише для діючих студентів.</b>\nБудь ласка, заверши процес реєстрації", parse_mode="HTML")
+        elif isinstance(event, CallbackQuery):
+            await event.answer("⚠️ Доступ лише для діючих студентів. Будь ласка, заверши реєстрацію", show_alert=True)
+        return

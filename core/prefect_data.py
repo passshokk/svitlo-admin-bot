@@ -105,7 +105,7 @@ PREFECTS_YOUNGER_SCHEDULE = {
         {"lesson_btn": "14:00 Creative Writing", "lesson_full": "Creative Writing - Through My Eyes", "prefect": "", "username": ""},
         {"lesson_btn": "15:00 Debating", "lesson_full": "Debating", "prefect": "Polina Lvova", "username": "@Ponchikuuuu"},
         {"lesson_btn": "15:00 English A1+", "lesson_full": "English A1+", "prefect": "", "username": ""},
-        {"lesson_btn": "16:00 Story time Gr 1", "lesson_full": "Story time Group 1", "prefect": "Alisa Mikhno", "username": "@AlisaMikhno"},
+        {"lesson_btn": "16:00 Story time Gr 1", "lesson_full": "Story time Group 1", "prefect": "Alisa Mikhno", "username": "@fell_for_neymar"},
         {"lesson_btn": "17:00 Story time Gr 2", "lesson_full": "Story time Group 2", "prefect": "Oleksandra Poliakova", "username": "@cheriive_26"},
         {"lesson_btn": "17:00 English B1 Gr 1", "lesson_full": "English B1 Group 1", "prefect": "", "username": "@LeW1k27"},
         {"lesson_btn": "18:00 English B1+ Gr 2", "lesson_full": "English B1+ Group 2", "prefect": "", "username": ""},

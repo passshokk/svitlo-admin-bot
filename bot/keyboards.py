@@ -4,6 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from core.context import user_roles_ctx
 
 def get_start_menu() -> InlineKeyboardMarkup:
+    """Стартове меню для ідентифікованих студентів та випускників"""
     buttons = [
         [InlineKeyboardButton(text="✅ Так, я вже є в чаті", callback_data="verify")],
         [InlineKeyboardButton(text="👨‍👩‍👦‍👦 Отримати доступ", callback_data="get_gengroup_access")]
@@ -11,12 +12,49 @@ def get_start_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_guest_start_menu() -> InlineKeyboardMarkup:
-    """Стартове меню для неідентифікованих користувачів (без telegramId)"""
+    """Стартове меню для неідентифікованих користувачів (лідів)"""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎓 Я вже студент Svitlo", callback_data="auth_existing"))
     builder.row(InlineKeyboardButton(text="📝 Хочу зареєструватись", callback_data="auth_new_lead"))
     return builder.as_markup()
 
+# ==========================
+# region --- Registration
+
+def get_start_registration_kb() -> InlineKeyboardMarkup:
+    """Кнопка для переходу від вітального повідомлення до збору даних"""
+    buttons = [[InlineKeyboardButton(text="🚀 Розпочати реєстрацію", callback_data="start_onboarding_flow")]]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_number_for_registration_kb() -> ReplyKeyboardMarkup:
+    """Кнопка для швидкої відправки номера телефону"""
+    buttons = [
+        [KeyboardButton(text="📱 Поділитися номером", request_contact=True)]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def get_lead_source_kb() -> ReplyKeyboardMarkup:
+    """Клавіатура для джерел трафіку"""
+    buttons = [
+        [KeyboardButton(text="📱 Instagram"), KeyboardButton(text="📹 TikTok")],
+        [KeyboardButton(text="👥 Від друзів / знайомих"), KeyboardButton(text="🏫 Від вчителів")],
+        [KeyboardButton(text="📰 Telegram-канали"), KeyboardButton(text="🌐 Facebook")],
+        [KeyboardButton(text="Інше")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def get_gender_kb() -> ReplyKeyboardMarkup:
+    buttons = [
+        [KeyboardButton(text="Чоловіча"), KeyboardButton(text="Жіноча")],
+        [KeyboardButton(text="Інша")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text=yes_text), KeyboardButton(text=no_text)]]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+# endregion
 # ==========================
 # region --- /menu
 
@@ -78,16 +116,8 @@ def get_help_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # endregion
-
 # ==========================
 # region --- Operational Buttons
-
-def get_number_for_registration_kb() -> ReplyKeyboardMarkup:
-    """Кнопка для швидкої відправки номера телефону"""
-    buttons = [
-        [KeyboardButton(text="📱 Поділитися номером", request_contact=True)]
-    ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_cancel_kb() -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text="❌ Скасувати")]]
@@ -110,7 +140,6 @@ def get_sasha_curator_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # endregion
-
 # ==========================
 # region --- Ticket System
 
@@ -152,3 +181,4 @@ def get_nps_kb(ticket_id: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 # endregion
+# ==========================
