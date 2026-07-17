@@ -119,7 +119,7 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     }
     await doc_ref.set(payload)
     # Оновлюємо кеш, щоб Middleware миттєво побачив нового ліда
-    student_cache[tg_id] = {"id": doc_ref.id, "data": doc_ref.get().to_dict()}
+    student_cache[tg_id] = {"id": doc_ref.id, "data": payload}
     
     return doc_ref.id
 
@@ -150,10 +150,10 @@ async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
         "crm_stage": next_crm_stage,
         "crm_stage_updated_at": get_kyivtime_now()
     }
-    
+    await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
     # Видаляємо пусті ключі, щоб не перезаписати випадково існуючі None/дефолти
-    clean_payload = {k: v for k, v in payload.items() if v != ""}
-    await db.collection('Svitlo').document(doc_id).set(clean_payload, merge=True)
+    # clean_payload = {k: v for k, v in payload.items() if v != ""}
+    # await db.collection('Svitlo').document(doc_id).set(clean_payload, merge=True)
 
 async def update_crm_stage(doc_id: str, next_crm_stage: str):
     """

@@ -21,6 +21,7 @@ reg_router.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "pr
 
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---
+@reg_router.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     student = student_ctx.get()
