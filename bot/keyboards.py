@@ -14,8 +14,8 @@ def get_start_menu() -> InlineKeyboardMarkup:
 def get_guest_start_menu() -> InlineKeyboardMarkup:
     """Стартове меню для неідентифікованих користувачів (лідів)"""
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🎓 Я вже студент Svitlo", callback_data="auth_existing"))
-    builder.row(InlineKeyboardButton(text="📝 Хочу зареєструватись", callback_data="auth_new_lead"))
+    builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", callback_data="auth_existing"))
+    builder.row(InlineKeyboardButton(text="🙋 Хочу зареєструватись", style="primary", callback_data="auth_new_lead"))
     return builder.as_markup()
 
 # ==========================
@@ -23,7 +23,7 @@ def get_guest_start_menu() -> InlineKeyboardMarkup:
 
 def get_start_registration_kb() -> InlineKeyboardMarkup:
     """Кнопка для переходу від вітального повідомлення до збору даних"""
-    buttons = [[InlineKeyboardButton(text="🚀 Розпочати реєстрацію", callback_data="start_onboarding_flow")]]
+    buttons = [[InlineKeyboardButton(text="🚀 Розпочати реєстрацію", style="danger", callback_data="start_onboarding_flow")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_number_for_registration_kb() -> ReplyKeyboardMarkup:

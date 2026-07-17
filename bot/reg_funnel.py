@@ -132,7 +132,7 @@ async def process_email(message: Message, state: FSMContext):
     await message.answer(
         "Надішли свій <b>номер телефону</b>.\nТи можеш натиснути кнопку нижче або ввести його вручну (в форматі +380XXXXXXXXX):", 
         parse_mode="HTML",
-        reply_markup=kb.get_contact_kb() # Очікується що у get_contact_kb() є кнопка request_contact=True
+        reply_markup=kb.get_number_for_registration_kb()
     )
 
 @reg_router.message(Registration.entering_phone, F.contact | F.text)
