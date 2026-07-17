@@ -213,7 +213,7 @@ async def process_parent_phone(message: Message, state: FSMContext):
     await state.update_data(parent_phone=phone)
     await state.set_state(Registration.entering_lead_source)
     await message.answer("Звідки ти дізнався(-лась) про Svitlo School? Обери або напиши свій варіант:", 
-                         reply_markup=kb.get_source_kb())
+                         reply_markup=kb.get_lead_source_kb())
 
 @reg_router.message(Registration.entering_lead_source, F.text == "Інше")
 async def process_lead_source(message: Message, state: FSMContext):
