@@ -230,7 +230,7 @@ async def process_health_bool(message: Message, state: FSMContext):
     if message.text.strip().lower() == "так":
         await state.update_data(health_bool=True)
         await state.set_state(Registration.entering_health_details)
-        await message.answer("Будь ласка, опиши їх коротко (наприклад: алергія, проблеми із зором тощо):", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Будь ласка, опиши їх коротко (це важливо, аби могли забезпечити інклюзивне середовище):", reply_markup=ReplyKeyboardRemove())
     elif message.text.strip().lower() == "ні":
         await state.update_data(health_bool=False, health_details="")
         await _finalize_personal_data(message, state)

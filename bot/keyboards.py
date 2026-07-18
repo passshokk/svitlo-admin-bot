@@ -37,7 +37,7 @@ def get_lead_source_kb() -> ReplyKeyboardMarkup:
     """Клавіатура для джерел трафіку"""
     buttons = [
         [KeyboardButton(text="📱 Instagram"), KeyboardButton(text="📹 TikTok")],
-        [KeyboardButton(text="👥 Від друзів / знайомих"), KeyboardButton(text="🏫 Від вчителів")],
+        [KeyboardButton(text="👥 Від друзів"), KeyboardButton(text="🏫 Від вчителів")],
         [KeyboardButton(text="📰 Telegram-канали"), KeyboardButton(text="🌐 Facebook")],
         [KeyboardButton(text="Інше")]
     ]

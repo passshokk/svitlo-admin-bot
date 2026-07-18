@@ -77,8 +77,9 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     
     payload = {
         # ⚙️ System & Tracking
+        "semester": 1_26-27, #current semester number
         "telegramId": tg_id,
-        "username": username or "",
+        "telegramUsername": '@'+username or "",
         "crm_stage": "lead",
         "created_at": now,
         "crm_stage_updated_at": now,
