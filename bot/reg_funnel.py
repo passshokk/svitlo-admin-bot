@@ -5,6 +5,9 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 import re
 from datetime import datetime
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types.web_app_info import WebAppInfo
+import os
 
 from core import database as db
 from bot import keyboards as kb
@@ -276,3 +279,33 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 # endregion =====================================================
 # region INTERLUDE #1
 # ===============================================================
+
+@reg_router.message(Command("test_cam"))
+async def cmd_test_camera_webapp(message: Message):
+    """
+    Тимчасова команда для розробників. 
+    Генерує кнопку з WebAppInfo для тестування фронтенду камери.
+    """
+    service_url = os.getenv("SERVICE_URL")
+    if not service_url:
+        await message.answer("⚠️ Помилка: SERVICE_URL не знайдено у змінних середовища.")
+        return
+        
+    webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="📸 Відкрити сканер", 
+            web_app=WebAppInfo(url=webapp_url)
+        )]
+    ])
+    
+    await message.answer(
+        "<b>Тест Zero-Storage Scanner</b> 🛠\n\n"
+        "Натисни кнопку нижче з мобільного пристрою, щоб перевірити:\n"
+        "1. Запит дозволу на камеру.\n"
+        "2. Відмальовку UI (адаптивність до теми).\n"
+        "3. Формування Base64 кадру.",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
