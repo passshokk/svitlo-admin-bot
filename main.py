@@ -8,6 +8,7 @@ from core.bot_init import bot, dp, WEBHOOK_SECRET
 from bot.handlers import tg_router
 from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware
+from api.webapp_routes import webapp_router
 
 # === БЛОК ЛОГУВАННЯ ===
 # Залишаємо INFO як базовий рівень для кастомних логів
@@ -37,7 +38,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 # Монтуємо роутер Cloud Tasks (всі ендпоінти /tasks/*)
 app.include_router(tasks_router)
-
+# Монтуємо роутер WebApp (камера та ШІ)
+app.include_router(webapp_router)
 
 # Головний роут для вебхуків Telegram
 @app.post("/")

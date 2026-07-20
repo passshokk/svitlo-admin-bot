@@ -46,7 +46,7 @@ def get_lead_source_kb() -> ReplyKeyboardMarkup:
 def get_gender_kb() -> ReplyKeyboardMarkup:
     buttons = [
         [KeyboardButton(text="Чоловіча"), KeyboardButton(text="Жіноча")],
-        [KeyboardButton(text="Інша")]
+        [KeyboardButton(text="Волію не відповідати")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 

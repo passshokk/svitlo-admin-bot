@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Svitlo Document Scanner</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--tg-theme-bg-color, #000);
+            color: var(--tg-theme-text-color, #fff);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #video-container {
+            width: 100%;
+            height: 80vh;
+            background: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #controls {
+            height: 20vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+        button {
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+            border: none;
+            border-radius: 12px;
+            padding: 16px 32px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button:disabled {
+            opacity: 0.5;
+        }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <!-- playsinline необхідний для роботи в iOS Telegram -->
+        <video id="camera" autoplay playsinline muted></video>
+    </div>
+    <div id="controls">
+        <button id="snap-btn">Сфотографувати</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Розгортаємо на весь екран
+
+        const video = document.getElementById('camera');
+        const canvas = document.getElementById('canvas');
+        const snapBtn = document.getElementById('snap-btn');
+
+        // Ініціалізація камери (запитуємо задню камеру)
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                tg.showAlert("Не вдалося отримати доступ до камери. Перевір дозволи");
+            }
+        }
+
+        snapBtn.addEventListener('click', async () => {
+            snapBtn.disabled = true;
+            snapBtn.innerText = "⏳ Аналізуємо...";
+
+            // Малюємо кадр на canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            // Компресія 60% (достатньо для ШІ, важить ~150-200kb)
+            const base64Image = canvas.toDataURL('image/jpeg', 0.6);
+
+            try {
+                const response = await fetch('/api/vision', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_base64: base64Image,
+                        init_data: tg.initData // Криптографічний підпис від Telegram
+                    })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    tg.close(); // Успіх - закриваємо WebApp
+                } else {
+                    tg.showAlert(result.error || "Помилка перевірки. Спробуй ще раз");
+                    snapBtn.disabled = false;
+                    snapBtn.innerText = "Сфотографувати";
+                }
+            } catch (err) {
+                tg.showAlert("Помилка з'єднання з сервером");
+                snapBtn.disabled = false;
+                snapBtn.innerText = "Сфотографувати";
+            }
+        });
+
+        initCamera();
+    </script>
+</body>
+</html>
