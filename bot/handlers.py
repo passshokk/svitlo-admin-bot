@@ -347,7 +347,7 @@ async def process_nps(callback: CallbackQuery):
     await callback.message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
 
     # Функція експорту в Notion
-    await ut.export_to_notion(updated_ticket_data)
+    await enqueue_task("/tasks/export_notion", payload=updated_ticket_data)
 
 # endregion ------------------------------------
 # region CALLBACKS - RB
@@ -573,7 +573,7 @@ async def process_email_input(message: Message, state: FSMContext):
         else:
             await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", parse_mode="HTML", reply_markup=kb.get_back_to_menu_kb())
         await state.clear()
-        await db.collection("FSM_Sessions").document(str(user_id)).delete()
+        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         return
         
     age_value = data.get("ageGroup")
@@ -581,7 +581,7 @@ async def process_email_input(message: Message, state: FSMContext):
     if not target_chat_id:
         await message.answer("❌ Не вдалося визначити твою вікову групу", reply_markup=kb.get_pasha_curator_keyboard())
         await state.clear()
-        await db.collection("FSM_Sessions").document(str(user_id)).delete()
+        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         return
         
     try:
@@ -594,7 +594,7 @@ async def process_email_input(message: Message, state: FSMContext):
         user_roles_ctx.set(data.get('roles', []))
 
         await state.clear()
-        await db.collection("FSM_Sessions").document(str(user_id)).delete()
+        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         
         raw_name = data.get("name", "Учень")
         name = str(raw_name).strip().title()

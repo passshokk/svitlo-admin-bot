@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, Response
 import core.database as db
 import core.config as cfg
 from core.bot_init import bot
+from core.utils import export_to_notion
 
 tasks_router = APIRouter(prefix="/tasks")
 
@@ -38,4 +39,14 @@ async def task_sla_check(request: Request):
     except Exception as e:
         logging.error(f"SLA Task error: {e}")
         # Повертаємо 500, щоб Cloud Tasks спробував виконати запит повторно (Retry Policy)
+        return Response(status_code=500)
+
+@tasks_router.post("/export_notion")
+async def task_export_notion(request: Request):
+    try:
+        payload = await request.json()
+        await export_to_notion(payload)
+        return Response(status_code=200)
+    except Exception as e:
+        logging.error(f"Notion Export Task error: {e}")
         return Response(status_code=500)

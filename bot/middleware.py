@@ -51,7 +51,7 @@ class RequireAuthMiddleware(BaseMiddleware):
 
         # 2. Перевірка доступу (Студенти + Ролі)
         allowed_stages = ['student', 'alumni']
-        allowed_roles = ['boss', 'curator', 'teacher', 'admin']
+        allowed_roles = ['boss', 'teacher']
 
         is_student = crm_stage in allowed_stages
         is_roles = any(role in user_roles for role in allowed_roles)

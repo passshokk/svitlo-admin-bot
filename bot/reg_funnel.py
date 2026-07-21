@@ -8,11 +8,13 @@ from datetime import datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types.web_app_info import WebAppInfo
 import os
+from aiogram import Bot
 
 from core import database as db
 from bot import keyboards as kb
 from bot.states import Registration
 from core import config as cfg
+from core.constants import QUIZ_DATA
 from core.context import student_ctx
 
 # Фільтр для безпечного тестування на продакшені
@@ -262,22 +264,80 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
     
     # Зберігаємо всі 16 полів та міняємо статус на rules_matching
     await db.save_lead_profile(doc_id, data, "rules_matching")
-    # можна забрати - затираємо словник у FSM_Sessions, щоб не тримати копію
-    await state.set_data({})
-    # Переводимо на наступний крок
+
     await state.set_state(Registration.passing_rules)
-    
+    await state.update_data(quiz_step=0)
+
     await message.answer(
         "✅ <b>Всі персональні дані успішно збережено!</b>\n\n"
-        "Наступний крок — коротке знайомство з правилами та культурою нашої спільноти.", 
+        "Наступний крок — коротке знайомство з правилами та культурою нашої спільноти."
+        "📖 <a href='https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21'>Читати повні правила (Telegraph)</a>", 
         parse_mode="HTML", 
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=kb.get_rules_start_kb(),
+        disable_web_page_preview=True
     )
     # TODO: Додати логіку надсилання квізу (Модуль 2 - Крок 3)
 
 
 # endregion =====================================================
-# region INTERLUDE #1
+# region RULES & QUIZ
+# ===============================================================
+
+@reg_router.callback_query(Registration.passing_rules)
+async def process_quiz(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    step = data.get("quiz_step", 0)
+    
+    if callback.data.startswith("ans_"):
+        ans_idx = int(callback.data.split("_")[1])
+        if ans_idx != QUIZ_DATA[step - 1]["correct"]:
+            await callback.answer(
+                "❌ Неправильно! Зверни увагу на правила щодо камер, відвідуваності та мови. Спробуй ще раз", 
+                show_alert=True
+            )
+            return 
+            
+    if step < len(QUIZ_DATA):
+        question = QUIZ_DATA[step]
+        text_to_send = f"📝 <b>Check Your Rules</b>\n\n{question['q']}"
+        
+        if callback.data == "quiz_start":
+            await callback.message.edit_text(text_to_send, reply_markup=kb.get_quiz_kb(question["options"]), parse_mode="HTML")
+        else:
+            await callback.message.edit_text(text_to_send, reply_markup=kb.get_quiz_kb(question["options"]), parse_mode="HTML")
+            
+        await state.update_data(quiz_step=step + 1)
+        
+    else:
+        await callback.message.delete()
+        await callback.message.answer(
+            "🎉 <b>Супер! Ти в темі.</b>\n\n"
+            "Останній крок — <b>ID Check</b>. Натисни кнопку нижче, "
+            "щоб відсканувати документ. Дані не зберігаються на наших серверах.",
+            reply_markup=kb.get_scanner_webapp_kb(),
+            parse_mode="HTML"
+        )
+        await state.set_state(Registration.uploading_docs)
+
+# endregion =====================================================
+# region INTERLUDE #2
+# ===============================================================
+
+@reg_router.message(Registration.uploading_docs)
+async def fallback_waiting_scan(message: Message):
+    """
+    Перехоплювач: спрацьовує, якщо замість WebApp юзер відправляє повідомлення або фото.
+    Захищає Zero-Storage логіку.
+    """
+    await message.answer(
+        "⚠️ Будь ласка, скористайся кнопкою <b>«📸 Level Check»</b> для безпечного сканування документа.\n\n"
+        "Ми піклуємося про твої дані (Zero-Storage), тому не приймаємо фотографії безпосередньо в чат.",
+        reply_markup=kb.get_scanner_webapp_kb(),
+        parse_mode="HTML"
+    )
+
+# endregion =====================================================
+# region AI WebApp for ID 
 # ===============================================================
 
 @reg_router.message(Command("test_cam"))
@@ -294,10 +354,7 @@ async def cmd_test_camera_webapp(message: Message):
     webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="📸 Відкрити сканер", 
-            web_app=WebAppInfo(url=webapp_url)
-        )]
+        [InlineKeyboardButton(text="📸 Відкрити сканер", web_app=WebAppInfo(url=webapp_url))]
     ])
     
     await message.answer(
@@ -309,3 +366,128 @@ async def cmd_test_camera_webapp(message: Message):
         parse_mode="HTML",
         reply_markup=keyboard
     )
+
+# endregion =====================================================
+# region ADMIN REVIEW
+# ===============================================================
+
+@reg_router.callback_query(F.data.startswith("lead_details_"))
+async def admin_show_lead_details(callback: CallbackQuery):
+    doc_id = callback.data.split("_")[2]
+    
+    doc = await db.db.collection('Svitlo').document(doc_id).get()
+    if not doc.exists:
+        await callback.answer("Анкету не знайдено", show_alert=True)
+        return
+        
+    data = doc.to_dict()
+    health_text = f"Так ({data.get('health_issues_details')})" if data.get('health_issues_bool') else "Ні"
+    
+    tg_username = data.get('telegramUsername', '').replace('@', '')
+    phone = data.get('phone', 'Не вказано')
+    display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
+    
+    detailed_text = (
+        f"<b>📋 Повна анкета: {data.get('name')} {data.get('surname')}</b>\n\n"
+        f"<b>Дата народження:</b> {data.get('dateOfBirth')} ({data.get('ageGroup')})\n"
+        f"<b>Email:</b> <code>{data.get('email')}</code>\n"
+        f"<b>Телефон:</b> <code>{phone}</code> | {display_username}\n"
+        f"<b>Стать:</b> {data.get('gender')}\n"
+        f"<b>Локація:</b> {data.get('location')}\n"
+        f"<b>Навчальний заклад:</b> {data.get('ed_institution_name')}\n"
+        f"<b>Джерело:</b> {data.get('lead_source')}\n"
+        f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
+        f"<b>Батьки:</b> {data.get('parent_name')}\n"
+        f"<b>Контакти батьків:</b> <code>{data.get('parent_phone')}</code> | {data.get('parent_email')}\n\n"
+        f"<i>Документ перевірено ШІ: {data.get('ai_doc_type')}</i>"
+    )
+    
+    keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=False)
+    
+    await callback.answer()
+    await callback.message.edit_text(detailed_text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@reg_router.callback_query(F.data == "hidden_profile_alert")
+async def alert_hidden_profile(callback: CallbackQuery):
+    """Показує повідомлення куратору, якщо у ліда немає юзернейму"""
+    await callback.answer(
+        "⚠️ У студента прихований профіль без юзернейму.\n"
+        "Скористайся його номером телефону, щоб зв'язатися", 
+        show_alert=True
+    )
+
+
+@reg_router.callback_query(F.data.startswith("lead_approve_"))
+async def admin_approve_lead(callback: CallbackQuery):
+    await callback.answer()
+    doc_id = callback.data.split("_")[2]
+    
+    # 1. Оновлюємо статус в БД на 'student'
+    await db.db.collection('Svitlo').document(doc_id).update({
+        "crm_stage": "student",
+        "crm_stage_updated_at": db.get_kyivtime_now(),
+        "roles": ["student"] # Надаємо базову роль
+    })
+    
+    # 2. Оновлюємо інтерфейс куратора
+    reviewer_name = callback.from_user.full_name
+    await callback.message.edit_text(
+        f"{callback.message.html_text}\n\n"
+        f"✅ <b>ЗАРАХОВАНО!</b> (Куратор: {reviewer_name})",
+        parse_mode="HTML",
+        reply_markup=None # Видаляємо кнопки
+    )
+    
+    # 3. TODO: Тут буде виклик SchoolToday API
+    
+    # 4. Надсилаємо студенту привітання та Lock Screen меню
+    doc = await db.db.collection('Svitlo').document(doc_id).get()
+    user_id = doc.to_dict().get('telegramId')
+    
+    # Видаляємо технічний смітник з FSM_Sessions (фінальне очищення)
+    await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
+    
+    await callback.bot.send_message(
+        chat_id=user_id,
+        text="🎉 <b>Вітаємо! Твою заявку схвалено.</b>\n"
+             "Ти офіційно стаєш частиною SvitloSchool!\n\n"
+             "Щоб розблокувати меню бота та отримати доступ до уроків, натисни кнопку нижче:",
+        parse_mode="HTML",
+        reply_markup=kb.get_start_menu() # Кнопка "Отримати доступ"
+    )
+
+# @reg_router.callback_query(F.data.startswith("lead_reject_"))
+# async def admin_reject_lead(callback: CallbackQuery):
+    # ТУТ МАЄ БУТИ РОУТИНГ НА РІЗНІ ЕТАПИ І ПОВЕРНЕННЯ НА ДОПРАЦЮВАННЯ
+
+
+    # doc_id = callback.data.split("_")[2]
+    
+    # doc = await db.db.collection('Svitlo').document(doc_id).get()
+    # user_id = doc.to_dict().get('telegramId')
+
+    # # Відкат статусу
+    # await db.db.collection('Svitlo').document(doc_id).update({
+    #     "crm_stage": "lead",
+    #     "crm_stage_updated_at": db.get_kyivtime_now()
+    # })
+
+    # reviewer_name = callback.from_user.full_name
+    # await callback.message.edit_text(
+    #     f"{callback.message.html_text}\n\n"
+    #     f"🔄 <b>ВІДХИЛЕНО / НА ДООПРАЦЮВАННЯ</b> (Куратор: {reviewer_name})",
+    #     parse_mode="HTML",
+    #     reply_markup=None
+    # )
+    
+    # await callback.bot.send_message(
+    #     chat_id=user_id,
+    #     text="⚠️ <b>Куратор повернув твою заявку на доопрацювання.</b>\n"
+    #          "З тобою незабаром зв'яжуться для уточнення деталей.",
+    #     parse_mode="HTML"
+    # )
+
+# endregion =====================================================
+# region 
+# ===============================================================

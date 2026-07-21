@@ -1,7 +1,12 @@
 # bot/keyboards.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.types.web_app_info import WebAppInfo
+import os
 from core.context import user_roles_ctx
+
+# ==========================
+# region --- Registration
 
 def get_start_menu() -> InlineKeyboardMarkup:
     """Стартове меню для ідентифікованих студентів та випускників"""
@@ -17,9 +22,6 @@ def get_guest_start_menu() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", callback_data="auth_existing"))
     builder.row(InlineKeyboardButton(text="🙋 Хочу зареєструватись", style="primary", callback_data="auth_new_lead"))
     return builder.as_markup()
-
-# ==========================
-# region --- Registration
 
 def get_start_registration_kb() -> InlineKeyboardMarkup:
     """Кнопка для переходу від вітального повідомлення до збору даних"""
@@ -53,6 +55,47 @@ def get_gender_kb() -> ReplyKeyboardMarkup:
 def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text=yes_text), KeyboardButton(text=no_text)]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def get_rules_start_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Прочитано. Почати квіз!", callback_data="quiz_start")
+    return builder.as_markup()
+
+def get_quiz_kb(options: list) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for i, opt in enumerate(options):
+        builder.button(text=opt, callback_data=f"ans_{i}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
+    service_url = os.getenv("SERVICE_URL", "https://svitlo-auth-bot-956835627561.europe-west3.run.app")
+    webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📸 Сканер документів", 
+        web_app=WebAppInfo(url=webapp_url)
+    )
+    return builder.as_markup()
+
+def get_admin_action_kb(doc_id: str, tg_username: str, include_details_btn: bool = False) -> InlineKeyboardMarkup:
+    """Генерує клавіатуру для кураторів (для нових лідів або розгорнутої анкети)"""
+    builder = InlineKeyboardBuilder()
+    
+    if include_details_btn:
+        builder.button(text="🔍 Розгорнути анкету", callback_data=f"lead_details_{doc_id}")
+        
+    if tg_username:
+        builder.button(text="💬 Зв'язатися", url=f"https://t.me/{tg_username}")
+    else:
+        builder.button(text="💬 Зв'язатися (За номером)", callback_data="hidden_profile_alert")
+        
+    builder.button(text="🔄 На доопрацювання", callback_data=f"lead_reject_{doc_id}")
+    builder.button(text="✅ Зарахувати (SchoolToday)", callback_data=f"lead_approve_{doc_id}")
+    
+    builder.adjust(1)
+    return builder.as_markup()
 
 # endregion
 # ==========================

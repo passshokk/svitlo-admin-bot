@@ -2,13 +2,8 @@
 import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
-from cachetools import TTLCache
-
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
-# Initialize a TTL cache for storing frequently accessed data
-student_cache = TTLCache(maxsize=1024, ttl=120)  # Cache up to 1024 items for 2 minutes
 
 def get_kyivtime_now():
     kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
@@ -23,18 +18,11 @@ db = firestore.AsyncClient()
 # region --- Main Svitlo DB
 
 async def get_student_by_tg_id(tg_id: int) -> dict | None:
-    """Пошук документа в колекції Svitlo за полем telegramId"""
-    if tg_id in student_cache:
-        return student_cache[tg_id]
-    
-    student_data = None
+    """Пошук документа в колекції Svitlo. Виключно прямий запит у БД."""
     query = db.collection('Svitlo').where(filter=FieldFilter('telegramId', '==', tg_id)).limit(1).stream()
     async for d in query:
-        student_data = {"id": d.id, "data": d.to_dict()}
-        break
-
-    student_cache[tg_id] = student_data # Записуємо в кеш
-    return student_data
+        return {"id": d.id, "data": d.to_dict()}
+    return None
 
 async def get_student_by_email(email: str):
     """Бере дані студента за його електронною поштою."""
@@ -48,11 +36,9 @@ async def grant_access_to_student(doc_id: str, tg_id: int):
         'groupAccess': True,
         'telegramId': tg_id
     })
-    student_cache.pop(tg_id, None) # Видаляємо ключ з об'єкта кешу
 
 async def link_telegram_id(doc_id: str, tg_id: int):
     await db.collection('Svitlo').document(doc_id).update({'telegramId': tg_id})
-    student_cache.pop(tg_id, None) # Видаляємо ключ з об'єкта кешу
 
 async def grant_house_access(doc_id: str):
     """Ставить прапорець, що юзер вже отримав лінк на свій Хаус."""
@@ -79,7 +65,7 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         # ⚙️ System & Tracking
         "semester": 1_26-27, #current semester number
         "telegramId": tg_id,
-        "telegramUsername": '@'+username or "",
+        "telegramUsername": username or "",
         "crm_stage": "lead",
         "created_at": now,
         "crm_stage_updated_at": now,
@@ -119,8 +105,6 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "roles": []
     }
     await doc_ref.set(payload)
-    # Оновлюємо кеш, щоб Middleware миттєво побачив нового ліда
-    student_cache[tg_id] = {"id": doc_ref.id, "data": payload}
     
     return doc_ref.id
 

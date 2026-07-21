@@ -83,7 +83,7 @@
                 });
                 video.srcObject = stream;
             } catch (err) {
-                tg.showAlert("Не вдалося отримати доступ до камери. Перевір дозволи");
+                tg.showAlert("Не вдалося отримати доступ до камери. Будь ласка, перезапусти сканер");
             }
         }
 
@@ -113,7 +113,7 @@
                 if (result.success) {
                     tg.close(); // Успіх - закриваємо WebApp
                 } else {
-                    tg.showAlert(result.error || "Помилка перевірки. Спробуй ще раз");
+                    tg.showAlert(result.error || "Помилка перевірки. Будь ласка, спробуй ще раз");
                     snapBtn.disabled = false;
                     snapBtn.innerText = "Сфотографувати";
                 }
