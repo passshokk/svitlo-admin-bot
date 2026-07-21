@@ -23,8 +23,8 @@ webapp_router = APIRouter()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Ініціалізація Vertex AI (бере credentials з сервіс-акаунта Cloud Run)
-vertexai.init(project="svitlo-auth-bot", location="us-central1")
-vision_model = GenerativeModel("gemini-1.5-flash-001")
+vertexai.init(project="svitlo-auth-bot", location="eu")
+vision_model = GenerativeModel("gemini-3.5-flash-lite")
 
 class VisionPayload(BaseModel):
     image_base64: str
