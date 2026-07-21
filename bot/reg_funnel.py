@@ -103,8 +103,7 @@ async def start_entering_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Поїхали! 🚀", reply_markup=None)
     await callback.message.answer(
         "Введи своє <b>Ім'я</b> (наприклад, Олена):", 
-        parse_mode="HTML", 
-        reply_markup=kb.get_cancel_kb()
+        parse_mode="HTML"
     )
 
 
