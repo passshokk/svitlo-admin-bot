@@ -12,7 +12,15 @@ HOUSE_CHATS = {
 
 CURATOR_GROUP_ID = -1004393635348
 ADMIN_GROUP_ID = -5437292784
+DEV_IDS = [1125108435
+           , 7492031531
+           , 237731718
+           ,
+           ]
+
 MAIN_CURATOR_USERNAME = "@passshokk"
+
+
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 PHONE_REGEX = r'^\+[1-9]\d{7,14}$'
 

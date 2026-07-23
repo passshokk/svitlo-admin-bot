@@ -27,3 +27,4 @@ class Registration(StatesGroup):
     
     passing_rules = State()
     uploading_docs = State()
+    admin_review = State()

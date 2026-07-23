@@ -6,14 +6,21 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
-# Глобальний клієнт (перевикористовує TCP-з'єднання)
-client = tasks_v2.CloudTasksClient()
-
 PROJECT_ID = "svitlo-auth-bot"
 REGION = "europe-west3"
 QUEUE_NAME = "bot-tasks-queue"
 
 SERVICE_URL = os.getenv("SERVICE_URL") 
+
+# Зберігаємо клієнт як глобальну змінну, але ініціалізуємо ліниво
+_client: tasks_v2.CloudTasksClient | None = None
+
+def _get_tasks_client() -> tasks_v2.CloudTasksClient:
+    global _client
+    if _client is None:
+        # Ініціалізація відбудеться лише при першому виклику таски (не на старті контейнера)
+        _client = tasks_v2.CloudTasksClient()
+    return _client
 
 async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
     """
@@ -25,6 +32,7 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
     if not SERVICE_URL:
         raise ValueError("SERVICE_URL is missing in environment variables.")
 
+    client = _get_tasks_client()
     parent = client.queue_path(PROJECT_ID, REGION, QUEUE_NAME)
     url = f"{SERVICE_URL.rstrip('/')}{endpoint}"
 

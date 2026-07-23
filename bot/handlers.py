@@ -28,15 +28,13 @@ private_router = Router()
 fallback_router = Router()
 javis = Router()
 
-DEV_IDS = [1125108435]
-
 private_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 private_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 # Фільтр: пускати в dev_router ТІЛЬКИ розробників
-javis.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
-javis.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.message.chat.type == "private")
+javis.message.filter(F.from_user.id.in_(cfg.DEV_IDS), F.chat.type == "private")
+javis.callback_query.filter(F.from_user.id.in_(cfg.DEV_IDS), F.message.chat.type == "private")
 
 private_router.message.middleware(RequireAuthMiddleware())
 private_router.callback_query.middleware(RequireAuthMiddleware())
@@ -124,7 +122,7 @@ async def cmd_house_smart_access(message: Message, state: FSMContext):
             f"Ось твоє персональне одноразове посилання:\n{invite.invite_link}", 
             parse_mode="HTML"
         )
-        await asyncio.sleep(2)
+        
         await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
         
     except Exception as e:
@@ -226,7 +224,7 @@ async def clbck_house_smart_access(callback: CallbackQuery):
             f"Ось твоє персональне одноразове посилання:\n{invite.invite_link}", 
             parse_mode="HTML"
         )
-        await asyncio.sleep(2)
+        
         await callback.message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
         
     except Exception as e:
@@ -467,7 +465,7 @@ async def category_chosen(message: Message, state: FSMContext):
         "<b>Розкажи, що трапилося 👀</b>\n"
         "<i>Можеш надсилати не лише текст, а голосові, фото чи відео:</i>", 
         parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=kb.get_cancel_kb()
     )
 
 @public_router.message(TicketFSM.choosing_category)
@@ -550,7 +548,7 @@ async def process_email_input(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_pasha_curator_keyboard()
         )
-        # await asyncio.sleep(2)
+        # 
         # await message.answer(
         #     "<b>Увага!</b>\n"
         #     "📌 Врахуй, що нині відбувається активний набір нових студентів, тому якщо ти зовсім недавно доєднався до Світло, твоя пошта може бути ще не внесена в базу.\n\n"
@@ -573,7 +571,6 @@ async def process_email_input(message: Message, state: FSMContext):
         else:
             await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", parse_mode="HTML", reply_markup=kb.get_back_to_menu_kb())
         await state.clear()
-        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         return
         
     age_value = data.get("ageGroup")
@@ -581,7 +578,6 @@ async def process_email_input(message: Message, state: FSMContext):
     if not target_chat_id:
         await message.answer("❌ Не вдалося визначити твою вікову групу", reply_markup=kb.get_pasha_curator_keyboard())
         await state.clear()
-        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         return
         
     try:
@@ -594,7 +590,6 @@ async def process_email_input(message: Message, state: FSMContext):
         user_roles_ctx.set(data.get('roles', []))
 
         await state.clear()
-        await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
         
         raw_name = data.get("name", "Учень")
         name = str(raw_name).strip().title()
@@ -604,7 +599,7 @@ async def process_email_input(message: Message, state: FSMContext):
             "Зауваж, воно діє лише 1 день.",
             parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
         )
-        await asyncio.sleep(2)
+        
         await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
         
     except Exception as e:
@@ -705,12 +700,15 @@ async def curator_reply_handler(message: Message):
 
     if not assigned_curator:
         warn_msg = await message.reply("🔻 <b>Помилка:</b>\nспочатку натисни кнопку «Взяти в роботу» під цим тікетом", parse_mode="HTML")
-        await asyncio.sleep(5)
-        try:
-            await warn_msg.delete()
-            await message.delete()
-        except Exception:
-            pass
+        # Відправляємо задачу в Cloud Tasks для неблокуючого видалення
+        await enqueue_task(
+            endpoint="/tasks/delete_messages",
+            payload={
+                "chat_id": message.chat.id, 
+                "message_ids": [warn_msg.message_id, message.message_id]
+            },
+            delay_seconds=5
+        )
         return
 
     if assigned_curator != current_sender_name:

@@ -50,3 +50,15 @@ async def task_export_notion(request: Request):
     except Exception as e:
         logging.error(f"Notion Export Task error: {e}")
         return Response(status_code=500)
+    
+@tasks_router.post("/delete_messages")
+async def task_delete_messages(request: Request):
+    """Фонове видалення повідомлень без блокування вебхука"""
+    payload = await request.json()
+    chat_id = payload.get("chat_id")
+    for msg_id in payload.get("message_ids", []):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logging.warning(f"Не вдалося видалити повідомлення {msg_id}: {e}")
+    return Response(status_code=200)

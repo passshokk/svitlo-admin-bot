@@ -7,18 +7,14 @@ import re
 from datetime import datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types.web_app_info import WebAppInfo
-import os
-from aiogram import Bot
+import logging
 
 from core import database as db
 from bot import keyboards as kb
 from bot.states import Registration
-from core import config as cfg
 from core.constants import QUIZ_DATA
 from core.context import student_ctx
-
-# Фільтр для безпечного тестування на продакшені
-DEV_IDS = [1125108435]
+from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX
 
 reg_router = Router()
 reg_router.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
@@ -127,7 +123,7 @@ async def process_last_name(message: Message, state: FSMContext):
 @reg_router.message(Registration.entering_email, F.text)
 async def process_email(message: Message, state: FSMContext):
     email = message.text.lower().strip()
-    if not re.match(cfg.EMAIL_REGEX, email):
+    if not re.match(EMAIL_REGEX, email):
         await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):", parse_mode="HTML")
         return
         
@@ -144,7 +140,7 @@ async def process_phone(message: Message, state: FSMContext):
     phone = message.contact.phone_number if message.contact else message.text.strip()
     phone = '+' + phone if not phone.startswith('+') else phone
 
-    if not re.match(cfg.PHONE_REGEX, phone):
+    if not re.match(PHONE_REGEX, phone):
         await message.answer("⚠️ Некоректний формат.\nВведи номер у міжнародному форматі (наприклад, <code>+380991234567</code>):", parse_mode="HTML")
         return
     
@@ -199,7 +195,7 @@ async def process_parent_name(message: Message, state: FSMContext):
 @reg_router.message(Registration.entering_parent_email, F.text)
 async def process_parent_email(message: Message, state: FSMContext):
     email = message.text.lower().strip()
-    if not re.match(cfg.EMAIL_REGEX, email):
+    if not re.match(EMAIL_REGEX, email):
         await message.answer("⚠️ Неправильний формат пошти. Спробуй ще раз:")
         return
     await state.update_data(parent_email=email)
@@ -210,7 +206,7 @@ async def process_parent_email(message: Message, state: FSMContext):
 async def process_parent_phone(message: Message, state: FSMContext):
     phone = message.text.strip()
     phone = '+' + phone if not phone.startswith('+') else phone
-    if not re.match(cfg.PHONE_REGEX, phone):
+    if not re.match(PHONE_REGEX, phone):
         await message.answer("⚠️ Некоректний формат. Введи номер у міжнародному форматі:")
         return
         
@@ -269,7 +265,7 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 
     await message.answer(
         "✅ <b>Всі персональні дані успішно збережено!</b>\n\n"
-        "Наступний крок — коротке знайомство з правилами та культурою нашої спільноти."
+        "Наступний крок — коротке знайомство з правилами та культурою нашої спільноти.\n"
         "📖 <a href='https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21'>Читати повні правила (Telegraph)</a>", 
         parse_mode="HTML", 
         reply_markup=kb.get_rules_start_kb(),
@@ -336,39 +332,21 @@ async def fallback_waiting_scan(message: Message):
     )
 
 # endregion =====================================================
-# region AI WebApp for ID 
-# ===============================================================
-
-@reg_router.message(Command("test_cam"))
-async def cmd_test_camera_webapp(message: Message):
-    """
-    Тимчасова команда для розробників. 
-    Генерує кнопку з WebAppInfo для тестування фронтенду камери.
-    """
-    service_url = os.getenv("SERVICE_URL")
-    if not service_url:
-        await message.answer("⚠️ Помилка: SERVICE_URL не знайдено у змінних середовища.")
-        return
-        
-    webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📸 Відкрити сканер", web_app=WebAppInfo(url=webapp_url))]
-    ])
-    
-    await message.answer(
-        "<b>Тест Zero-Storage Scanner</b> 🛠\n\n"
-        "Натисни кнопку нижче з мобільного пристрою, щоб перевірити:\n"
-        "1. Запит дозволу на камеру.\n"
-        "2. Відмальовку UI (адаптивність до теми).\n"
-        "3. Формування Base64 кадру.",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-# endregion =====================================================
 # region ADMIN REVIEW
 # ===============================================================
+
+@reg_router.message(Registration.admin_review)
+async def process_admin_review_wait(message: Message):
+    await message.answer("⏳ Твоя заявка зараз перевіряється куратором. Зачекай результату")
+
+@reg_router.callback_query(F.data == "hidden_profile_alert")
+async def alert_hidden_profile(callback: CallbackQuery):
+    """Показує повідомлення куратору, якщо у ліда немає юзернейму"""
+    await callback.answer(
+        "⚠️ У студента прихований профіль без юзернейму.\n"
+        "Скористайся його номером телефону, щоб зв'язатися", 
+        show_alert=True
+    )
 
 @reg_router.callback_query(F.data.startswith("lead_details_"))
 async def admin_show_lead_details(callback: CallbackQuery):
@@ -406,16 +384,62 @@ async def admin_show_lead_details(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(detailed_text, parse_mode="HTML", reply_markup=keyboard)
 
-
-@reg_router.callback_query(F.data == "hidden_profile_alert")
-async def alert_hidden_profile(callback: CallbackQuery):
-    """Показує повідомлення куратору, якщо у ліда немає юзернейму"""
-    await callback.answer(
-        "⚠️ У студента прихований профіль без юзернейму.\n"
-        "Скористайся його номером телефону, щоб зв'язатися", 
-        show_alert=True
+@reg_router.callback_query(F.data.startswith("lead_confirmblock_"))
+async def admin_confirm_block_lead(callback: CallbackQuery):
+    doc_id = callback.data.split("_")[2]
+    await callback.message.edit_reply_markup(
+        reply_markup=kb.get_admin_confirm_block_kb(doc_id)
     )
 
+@reg_router.callback_query(F.data.startswith("lead_block_"))
+async def admin_block_lead(callback: CallbackQuery):
+    await callback.answer("Заявку заблоковано")
+    doc_id = callback.data.split("_")[2]
+    
+    # 1. Отримуємо документ для витягування telegramId
+    doc_ref = db.db.collection('Svitlo').document(doc_id)
+    doc = await doc_ref.get()
+    
+    if not doc.exists:
+        await callback.message.edit_text(f"{callback.message.html_text}\n\n❌ <b>Помилка: Анкету не знайдено</b>", parse_mode="HTML")
+        return
+
+    data = doc.to_dict()
+    user_id = data.get('telegramId')
+
+    # 2. Переводимо stage в blocked у Flat Schema
+    await doc_ref.update({
+        "crm_stage": "blocked",
+        "crm_stage_updated_at": db.get_kyivtime_now()
+    })
+
+    # 3. Гарантовано очищаємо FSM_Sessions, щоб не залишати сміття
+    if user_id:
+        try:
+            await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
+        except Exception as e:
+            logging.warning(f"Не вдалося видалити FSM_Session для заблокованого юзера {user_id}: {e}")
+
+    # 4. Оновлюємо інтерфейс куратора
+    reviewer_name = callback.from_user.full_name
+    await callback.message.edit_text(
+        f"⛔️ <b>ЗАЯКУ ВІДХИЛЕНО</b>\n"
+        f"Куратор: {reviewer_name}\n\n"
+        f"{callback.message.html_text}",
+        parse_mode="HTML",
+        reply_markup=None
+    )
+
+    # 5. Сповіщаємо спамера (опціонально)
+    if user_id:
+        try:
+            await callback.bot.send_message(
+                chat_id=user_id,
+                text="❌ <b>Твою заявку було відхилено адміністратором.</b> Доступ до системи обмежено",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass # Якщо юзер уже заблокував бота
 
 @reg_router.callback_query(F.data.startswith("lead_approve_"))
 async def admin_approve_lead(callback: CallbackQuery):
@@ -456,36 +480,7 @@ async def admin_approve_lead(callback: CallbackQuery):
         reply_markup=kb.get_start_menu() # Кнопка "Отримати доступ"
     )
 
-# @reg_router.callback_query(F.data.startswith("lead_reject_"))
-# async def admin_reject_lead(callback: CallbackQuery):
-    # ТУТ МАЄ БУТИ РОУТИНГ НА РІЗНІ ЕТАПИ І ПОВЕРНЕННЯ НА ДОПРАЦЮВАННЯ
 
-
-    # doc_id = callback.data.split("_")[2]
-    
-    # doc = await db.db.collection('Svitlo').document(doc_id).get()
-    # user_id = doc.to_dict().get('telegramId')
-
-    # # Відкат статусу
-    # await db.db.collection('Svitlo').document(doc_id).update({
-    #     "crm_stage": "lead",
-    #     "crm_stage_updated_at": db.get_kyivtime_now()
-    # })
-
-    # reviewer_name = callback.from_user.full_name
-    # await callback.message.edit_text(
-    #     f"{callback.message.html_text}\n\n"
-    #     f"🔄 <b>ВІДХИЛЕНО / НА ДООПРАЦЮВАННЯ</b> (Куратор: {reviewer_name})",
-    #     parse_mode="HTML",
-    #     reply_markup=None
-    # )
-    
-    # await callback.bot.send_message(
-    #     chat_id=user_id,
-    #     text="⚠️ <b>Куратор повернув твою заявку на доопрацювання.</b>\n"
-    #          "З тобою незабаром зв'яжуться для уточнення деталей.",
-    #     parse_mode="HTML"
-    # )
 
 # endregion =====================================================
 # region 

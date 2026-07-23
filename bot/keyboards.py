@@ -91,8 +91,18 @@ def get_admin_action_kb(doc_id: str, tg_username: str, include_details_btn: bool
     else:
         builder.button(text="💬 Зв'язатися (За номером)", callback_data="hidden_profile_alert")
         
-    builder.button(text="🔄 На доопрацювання", callback_data=f"lead_reject_{doc_id}")
+    builder.button(text="⛔️ Відхилити", callback_data=f"lead_confirmblock_{doc_id}")
     builder.button(text="✅ Зарахувати (SchoolToday)", callback_data=f"lead_approve_{doc_id}")
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_admin_confirm_block_kb(doc_id: str) -> InlineKeyboardMarkup:
+    """Клавіатура підтвердження видалення ліда (захист від міскліку)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚠️ Так, точно відхилити", callback_data=f"lead_block_{doc_id}")
+    # Повертає до розгорнутої анкети, скасовуючи видалення
+    builder.button(text="🔙 Скасувати", callback_data=f"lead_details_{doc_id}")
     
     builder.adjust(1)
     return builder.as_markup()

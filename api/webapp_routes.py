@@ -12,12 +12,15 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import logging
 
 from bot import keyboards as kb
 from core import database as db
-from core.bot_init import bot
+from core.bot_init import bot, dp
 from core import config as cfg
+
+# Приховає рівень WARNING від внутрішніх логерів Vertex AI
+logging.getLogger("root").setLevel(logging.ERROR)
 
 webapp_router = APIRouter()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -77,7 +80,7 @@ async def process_vision(payload: VisionPayload):
             [image_part, prompt],
             generation_config={"response_mime_type": "application/json"}
         )
-        # ДОДАНО: Очищення можливого маркдауну перед парсингом
+        # Очищення можливого маркдауну перед парсингом
         clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.IGNORECASE)
         result = json.loads(clean_json)
         
@@ -104,6 +107,9 @@ async def process_vision(payload: VisionPayload):
                 text="✅ <b>Документ успішно розпізнано!</b>\nТвоя заявка передана кураторам на фінальне затвердження. Очікуй на повідомлення",
                 parse_mode="HTML"
             )
+            await db.db.collection('FSM_Sessions').document(str(user_id)).update({
+                "state": "Registration:admin_review"
+            })
             
             # ФОРМУВАННЯ КАРТКИ КУРАТОРА            
             tg_username = student_data.get('telegramUsername', '').replace('@', '')

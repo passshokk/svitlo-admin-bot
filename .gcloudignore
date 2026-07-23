@@ -13,6 +13,9 @@ __pycache__/
 .vscode/
 webhook_setup.py
 db_migration.py
+osint_scanner.html
+standalone_osint_bot.py
+ngrok.exe
 
 # Системні файли Git та конфіги
 .git/
