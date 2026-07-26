@@ -796,7 +796,7 @@ async def fallback_msg1(message: Message):
 
 @fallback_router.message(F.chat.type == "private")
 async def unknown_content_handler(message: Message):
-    await message.answer("Я тебе не зрозумів 🤷‍♂️ Скористайся /menu для навігації")
+    await message.answer("Я тебе не зрозумів 🤷\nСкористайся /menu для навігації")
 
 # endregion =====================================================
 # region 

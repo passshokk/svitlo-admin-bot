@@ -99,46 +99,52 @@ async def process_vision(payload: VisionPayload):
                 "ai_doc_type": result.get("doc_type", "unknown"),
                 "crm_stage": "admin_review",
                 "crm_stage_updated_at": db.get_kyivtime_now()
-            })
+                })
+            await db.db.collection('FSM_Sessions').document(str(user_id)).set(
+                {"state": "Registration:admin_review"}, 
+                merge=True
+                )
             
             # Server-Side Push: Сповіщаємо юзера про успіх
-            await bot.send_message(
-                chat_id=user_id,
-                text="✅ <b>Документ успішно розпізнано!</b>\nТвоя заявка передана кураторам на фінальне затвердження. Очікуй на повідомлення",
-                parse_mode="HTML"
-            )
-            await db.db.collection('FSM_Sessions').document(str(user_id)).update({
-                "state": "Registration:admin_review"
-            })
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="✅ <b>Документ успішно розпізнано!</b>\nТвоя заявка передана кураторам на фінальне затвердження. Очікуй на повідомлення",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.warning(f"Failed to notify user {user_id}: {e}")
             
-            # ФОРМУВАННЯ КАРТКИ КУРАТОРА            
-            tg_username = student_data.get('telegramUsername', '').replace('@', '')
-            keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
-            
-            full_name = f"{student_data.get('name', '')} {student_data.get('surname', '')}"
-            age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
-            phone = student_data.get('phone', 'Не вказано')
-            display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
+            # ФОРМУВАННЯ КАРТКИ КУРАТОРА
+            try:         
+                tg_username = student_data.get('telegramUsername', '').replace('@', '')
+                keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
+                
+                full_name = f"{student_data.get('name', '')} {student_data.get('surname', '')}"
+                age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
+                phone = student_data.get('phone', 'Не вказано')
+                display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
 
-            await bot.send_message(
-                chat_id=cfg.ADMIN_GROUP_ID,
-                text=(
-                    f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
-                    f"<b>Студент:</b> {full_name}\n"
-                    f"<b>Група:</b> {age_group}\n"
-                    f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
-                    f"<b>ШІ розпізнав:</b> {result.get('doc_type')} (Точність: {int(result.get('confidence', 0)*100)}%)\n\n"
-                    f"Очікує рішення куратора."
-                ),
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
+                await bot.send_message(
+                    chat_id=cfg.ADMIN_GROUP_ID,
+                    text=(
+                        f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
+                        f"<b>Студент:</b> {full_name}\n"
+                        f"<b>Група:</b> {age_group}\n"
+                        f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
+                        f"<b>ШІ розпізнав:</b> {result.get('doc_type')} (Точність: {int(result.get('confidence', 0)*100)}%)\n\n"
+                        f"Очікує рішення куратора:"
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+                return {"success": True}
             
-            return {"success": True}
+            except Exception as e:
+                logging.error(f"Failed to send admin notification: {e}")
         else:
             return {"success": False, "error": "Не знайдено українських маркерів. Переконайся, що документ добре видно у кадрі, та спробуй ще раз"}
             
     except Exception as e:
-        import logging
         logging.error(f"Vertex AI Vision Error: {e}")
-        return {"success": False, "error": "Помилка обробки ШІ. Спробуй пізніше."}
+        return {"success": False, "error": "Помилка обробки ШІ. Спробуй пізніше"}
