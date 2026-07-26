@@ -1,8 +1,7 @@
 # bot/handlers.py
-import asyncio
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 import re
 from datetime import timedelta, datetime
@@ -20,13 +19,15 @@ from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
 from bot.reg_funnel import reg_router
+from bot.filters import ActiveTicketFilter
 
 # region ROUTER --------------------------------
 
-public_router = Router()
-private_router = Router()
-fallback_router = Router()
 javis = Router()
+private_router = Router()
+public_router = Router()
+fallback_router = Router()
+support_router = Router()
 
 private_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
@@ -54,17 +55,21 @@ tg_router.include_router(private_router)
 # 4. ПУБЛІЧНИЙ: Доступний для всіх
 tg_router.include_router(public_router)
 
-# 5. СТРОГО ОСТАННІМ: Фолбеки (невідомі команди, незрозумілий текст)
+# 5. ПІДТРИМКА: Доступний для всіх, але з обмеженнями
+tg_router.include_router(support_router)
+
+# 6. СТРОГО ОСТАННІМ: Фолбеки (невідомі команди, незрозумілий текст)
 tg_router.include_router(fallback_router)
 
 
-# endregion ------------------------------------
+# endregion =====================================================
 # region COMMANDS
-# ----------------------------------------------
+# ===============================================================
 
 @public_router.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    await kb.drop_reply_keyboard(message)
     await message.answer(
         "Привіт! Я твій помічник у SvitloSchool ☺️\n<b>Ти вже є в загальному чаті своєї вікової групи?</b>",
         parse_mode="HTML",
@@ -74,6 +79,7 @@ async def cmd_start(message: Message, state: FSMContext):
 @public_router.message(Command("menu"), F.chat.type == "private")
 async def cmd_menu(message: Message, state: FSMContext):
     await state.clear()
+    await kb.drop_reply_keyboard(message)
     await message.answer(
         "Вітаю у SvitloMenu! Обирай:",
         reply_markup=kb.get_main_menu()
@@ -85,7 +91,7 @@ async def cmd_profile(message: Message, state: FSMContext):
     student = student_ctx.get()
 
     text = ut.get_profile_text(student['data'])
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text)
 
 @public_router.message(Command("prefect"))
 async def handle_prefect_check(message: Message):
@@ -99,11 +105,11 @@ async def cmd_house_smart_access(message: Message, state: FSMContext):
     house_name = data.get("house")
     
     if not house_name or house_name == "Newbie":
-        await message.answer("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", parse_mode="HTML")
+        await message.answer("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!")
         return
 
     if data.get("houseAccess", False):
-        await message.answer("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", parse_mode="HTML", reply_markup=kb.get_sasha_curator_keyboard())
+        await message.answer("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
         return
 
     target_chat_id = cfg.HOUSE_CHATS.get(house_name)
@@ -132,20 +138,20 @@ async def cmd_house_smart_access(message: Message, state: FSMContext):
         )
         print(f"Error generating house link: {e}")
 
-# endregion ------------------------------------
+# endregion =====================================================
 # region CALLBACKS
-# ----------------------------------------------
+# ===============================================================
 
 @public_router.callback_query(F.data == "get_gengroup_access")
 async def reg_for_access(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.answer()
     await state.set_state(Registration.waiting_email)
-    await callback.message.edit_text("🔐 <b>Процес отримання доступу до групи</b>", parse_mode="HTML")
+    await callback.message.edit_text("🔐 <b>Процес отримання доступу до групи</b>")
     await callback.message.answer(
         "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації в SvitloSchool:",
         parse_mode="HTML",
-        reply_markup=kb.get_cancel_kb()
+        reply_markup=kb.get_back_to_menu_kb()
     )
 
 @public_router.callback_query(F.data == "verify")
@@ -156,8 +162,8 @@ async def verify_for_access(callback: CallbackQuery, state: FSMContext):
     # 1. Юзера взагалі немає в БД (старий зі SchoolToday) -> Відправляємо на лінковку
     if not student:
         await state.set_state(Registration.waiting_email)
-        await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>", parse_mode="HTML")
-        await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+        await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>")
+        await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_back_to_menu_kb())
         return
     
     # 2. Юзер - повноцінний студент або стаф -> Пускаємо в меню
@@ -175,7 +181,7 @@ async def clbck_menu(callback: CallbackQuery):
 async def clbck_profile(callback: CallbackQuery):
     student = student_ctx.get()
     text = ut.get_profile_text(student['data'])
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb.get_back_to_menu_kb())
+    await callback.message.edit_text(text, reply_markup=kb.get_back_to_menu_kb())
 
 @public_router.callback_query(F.data == "notify_me")
 async def add_notify_state(callback: CallbackQuery, state: FSMContext):
@@ -201,11 +207,11 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     house_name = data.get("house")
     
     if not house_name or house_name == "Newbie":
-        await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", parse_mode="HTML", reply_markup=kb.get_main_menu())
+        await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
         return
 
     if data.get("houseAccess", False):
-        await callback.message.edit_text("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", parse_mode="HTML", reply_markup=kb.get_sasha_curator_keyboard())
+        await callback.message.edit_text("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
         return
 
     target_chat_id = cfg.HOUSE_CHATS.get(house_name)
@@ -341,15 +347,15 @@ async def process_nps(callback: CallbackQuery):
     _, ticket_id, rating_str = callback.data.split("_")
     rating = int(rating_str)
     updated_ticket_data = await db.set_ticket_rating(ticket_id, rating)
-    await callback.message.edit_text(f"<b>Дякую за твою оцінку — {rating} ⭐</b>", parse_mode="HTML")
+    await callback.message.edit_text(f"<b>Дякую за твою оцінку — {rating} ⭐</b>")
     await callback.message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
 
     # Функція експорту в Notion
     await enqueue_task("/tasks/export_notion", payload=updated_ticket_data)
 
-# endregion ------------------------------------
+# endregion =====================================================
 # region CALLBACKS - RB
-# ----------------------------------------------
+# ===============================================================
 
 @private_router.callback_query(F.data.startswith("rb_day:"))
 async def switch_rbuddy_day(callback: CallbackQuery):
@@ -362,7 +368,7 @@ async def switch_rbuddy_day(callback: CallbackQuery):
     keyboard = rb.get_rbuddy_day_keyboard(day_index)
 
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception:
         pass
 
@@ -377,9 +383,9 @@ async def handle_missing_url(callback: CallbackQuery):
 
     await callback.answer(text, show_alert=True)
 
-# endregion ------------------------------------
+# endregion =====================================================
 # region CALLBACKS - PREF
-# ----------------------------------------------
+# ===============================================================
 
 @private_router.callback_query(F.data == "pref_group")
 async def show_prefect_schedule_auto(callback: CallbackQuery):
@@ -393,7 +399,7 @@ async def show_prefect_schedule_auto(callback: CallbackQuery):
 
     text = f"<b>🎓 Розклад уроків {group_name} групи на {day_name}.</b>\nОбирай предмет, щоб сконтактувати з його префектом:"
     keyboard = pr.get_prefects_day_keyboard(int(today_index), group)
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.message.edit_text(text, reply_markup=keyboard)
 
 @private_router.callback_query(F.data.startswith("oldpref_day:") | F.data.startswith("ypref_day:"))
 async def switch_prefect_day(callback: CallbackQuery):
@@ -407,7 +413,7 @@ async def switch_prefect_day(callback: CallbackQuery):
     text = f"<b>🎓 Розклад уроків {group_name} групи на {day_name}.</b>\nОбирай предмет, щоб сконтактувати з його префектом:"
     keyboard = pr.get_prefects_day_keyboard(int(day_index), group)
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception:
         pass
     
@@ -445,16 +451,20 @@ async def show_prefect_info(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Назад до розкладу", callback_data=f"{back_action}:{day_idx}")]
     ])
     
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_keyboard)
+    await callback.message.edit_text(text, reply_markup=back_keyboard)
 
-# endregion ------------------------------------
+# endregion =====================================================
 # region FSM (Messages)
-# ----------------------------------------------
+# ===============================================================
 
-@public_router.message(F.text.in_(["❌ Скасувати", "скасувати", "Скасувати"]))
-async def cancel_registration(message: Message, state: FSMContext):
+@public_router.message(
+    StateFilter(TicketFSM.choosing_category, TicketFSM.writing_first_message),
+    F.text.in_(["🔙 Назад у меню", "Скасувати"])
+)
+async def cancel_ticket_fsm(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Процес перервано 👌", reply_markup=ReplyKeyboardRemove())
+    await kb.drop_reply_keyboard(message)
+    await message.answer("Створення тікета скасовано 👌")
     await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
 
 @public_router.message(TicketFSM.choosing_category, F.text.in_(["Технічні баги", "Освітній процес", "Організаційні питання"]))
@@ -465,7 +475,7 @@ async def category_chosen(message: Message, state: FSMContext):
         "<b>Розкажи, що трапилося 👀</b>\n"
         "<i>Можеш надсилати не лише текст, а голосові, фото чи відео:</i>", 
         parse_mode="HTML",
-        reply_markup=kb.get_cancel_kb()
+        reply_markup=kb.get_back_to_menu_kb()
     )
 
 @public_router.message(TicketFSM.choosing_category)
@@ -526,7 +536,7 @@ async def first_ticket_message(message: Message, state: FSMContext):
         await message.copy_to(chat_id=cfg.CURATOR_GROUP_ID, reply_to_message_id=ticket_id)
     
     await state.clear()
-    await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...", parse_mode="HTML")
+    await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
 
 @public_router.message(Registration.waiting_email, F.text)
 async def process_email_input(message: Message, state: FSMContext):
@@ -566,10 +576,10 @@ async def process_email_input(message: Message, state: FSMContext):
             student_ctx.set(student)
             user_roles_ctx.set(data.get('roles', []))
 
-            await message.answer("✅ <b>Твій акаунт успішно синхронізовано</b>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+            await message.answer("✅ <b>Твій акаунт успішно синхронізовано</b>", reply_markup=ReplyKeyboardRemove())
             await message.answer("<b>Вітаю у SvitloMenu!</b> Вибирай:", reply_markup=kb.get_main_menu())
         else:
-            await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", parse_mode="HTML", reply_markup=kb.get_back_to_menu_kb())
+            await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", reply_markup=kb.get_back_to_menu_kb())
         await state.clear()
         return
         
@@ -606,38 +616,13 @@ async def process_email_input(message: Message, state: FSMContext):
         await message.answer("❌ Технічна помилка при генерації посилання", reply_markup=kb.get_pasha_curator_keyboard())
         print(f"ERROR: {e}")
 
-# endregion ------------------------------------
-# region TEXT (Messages)
-# ----------------------------------------------
+# endregion =====================================================
+# region HELP CENTRE
+# ===============================================================
 
-@public_router.message(F.text == "давай связь")
-async def cmd_menu(message: Message):
-    await message.react(reaction=[ReactionTypeEmoji(emoji="👎")])
-    await message.answer_sticker(sticker="CAACAgIAAxkBAAPTabBT4SYeNzP7oZb9oa1daBMAAcCDAAKWnQACQO5ZSeBmjQpUnOGuOgQ")
-
-# @public_router.message(F.sticker)
-# async def get_sticker_id(message: Message):
-    # print(f"Sticker ID: {message.sticker.file_id}")
-    # await message.answer(f"ID цього стікера:\n<code>{message.sticker.file_id}</code>", parse_mode="HTML")
-
-# endregion ------------------------------------
-# region CHAT TYPE (Messages)
-# ----------------------------------------------
-
-@fallback_router.message(F.chat.type == "private", F.text.startswith("/"))
-async def unknown_command_handler(message: Message):
-    """Ловить всі команди, які не були спіймані вище (опечатки)"""
-    await message.answer("🤔 Я не знаю такої команди, спробуй /menu")
-
-@fallback_router.message(F.chat.type == "private")
-async def user_follow_up_message(message: Message, state: FSMContext):
-    if await state.get_state() is not None:
-        return
-    
-    active_ticket = await db.get_active_ticket(message.from_user.id)
-    if not active_ticket:
-        return
-    
+@support_router.message(F.chat.type == "private", ActiveTicketFilter())
+async def user_follow_up_message(message: Message, active_ticket: dict):
+    # active_ticket прилітає напряму з фільтра
     ticket_id = active_ticket['ticket_id']
     text_content = message.text or message.caption or "[Медіафайл]"
     await db.append_user_message(ticket_id, text_content)
@@ -672,7 +657,7 @@ async def user_follow_up_message(message: Message, state: FSMContext):
                 reply_to_message_id=ticket_id
             )
 
-@fallback_router.message(F.chat.id == cfg.CURATOR_GROUP_ID, F.reply_to_message)
+@support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID, F.reply_to_message)
 async def curator_reply_handler(message: Message):
     ticket_id = message.reply_to_message.message_id
     ticket_data = await db.get_ticket(ticket_id)
@@ -699,7 +684,7 @@ async def curator_reply_handler(message: Message):
     assigned_curator = ticket_data.get('curator_name')
 
     if not assigned_curator:
-        warn_msg = await message.reply("🔻 <b>Помилка:</b>\nспочатку натисни кнопку «Взяти в роботу» під цим тікетом", parse_mode="HTML")
+        warn_msg = await message.reply("🔻 <b>Помилка:</b>\nспочатку натисни кнопку «Взяти в роботу» під цим тікетом")
         # Відправляємо задачу в Cloud Tasks для неблокуючого видалення
         await enqueue_task(
             endpoint="/tasks/delete_messages",
@@ -781,6 +766,38 @@ async def curator_reply_handler(message: Message):
     except Exception as e:
         print(f"Не вдалося поставити реакцію: {e}")
 
-# endregion ------------------------------------
+# endregion =====================================================
+# region FALLBACKS
+# ===============================================================
+
+@fallback_router.message(F.chat.type == "private", F.text.startswith("/"))
+async def unknown_command_handler(message: Message):
+    """Ловить всі команди, які не були спіймані вище (опечатки)"""
+    await message.answer("🤔 Я не знаю такої команди, спробуй /menu")
+
+@fallback_router.message(
+    F.chat.type == "private",
+    F.text.in_(["❌ Скасувати", "🔙 Назад у меню"])
+)
+async def cleanup_zombie_cancel_button(message: Message):
+    """Прибирає застарілу кнопку з екрана, якщо FSM стан вже None"""
+    await kb.drop_reply_keyboard(message)
+    await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
+
+@fallback_router.message(F.text == "давай связь")
+async def fallback_msg1(message: Message):
+    await message.react(reaction=[ReactionTypeEmoji(emoji="👎")])
+    await message.answer_sticker(sticker="CAACAgIAAxkBAAPTabBT4SYeNzP7oZb9oa1daBMAAcCDAAKWnQACQO5ZSeBmjQpUnOGuOgQ")
+
+# @fallback_router.message(F.sticker)
+# async def get_sticker_id(message: Message):
+    # print(f"Sticker ID: {message.sticker.file_id}")
+    # await message.answer(f"ID цього стікера:\n<code>{message.sticker.file_id}</code>")
+
+@fallback_router.message(F.chat.type == "private")
+async def unknown_content_handler(message: Message):
+    await message.answer("Я тебе не зрозумів 🤷‍♂️ Скористайся /menu для навігації")
+
+# endregion =====================================================
 # region 
-# ----------------------------------------------
+# ===============================================================

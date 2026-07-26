@@ -50,9 +50,16 @@ async def grant_house_access(doc_id: str):
 # region --- Registration Workflow
 
 async def init_lead(tg_id: int, username: str | None) -> str:
-    """
-    Створює новий документ ліда з автогенерованим ID.
-    Ініціалізує всі колонки профілю студента (Flat Schema) в Firebase з видимістю в Rowy.
+    """Створює новий документ ліда в Firebase.
+
+    Ініціалізує всі колонки профілю студента (Flat Schema) із забезпеченням коректного відображення в Rowy.
+
+    Parameters:
+        tg_id: Telegram ID користувача.
+        username: Юзернейм у Telegram (якщо є).
+
+    Returns:
+        str: Автогенерований ID створеного документа у Firestore.
     """
     existing = await get_student_by_tg_id(tg_id)
     if existing:
@@ -77,15 +84,18 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "email": "",
         "phone": "",
         "gender": "",
-        "dateOfBirth": "", 
+        "dateOfBirth": None, 
         "ageGroup": "",
         
-        # 📍 Location & Education
-        "location": "",
-        "ed_institution_name": "",
+        # 📍 Location & IDP/Refugee Status
+        "country": "",
+        "city": "",
+        "displaced_status": False,
+        "displaced_region": "",
         
         # 👨‍👩‍👧 Parents / Guardians
-        "parent_name": "",
+        "parent_first_name": "",
+        "parent_last_name": "",
         "parent_email": "",
         "parent_phone": "",
         
@@ -108,8 +118,6 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     
     return doc_ref.id
 
-# core/database.py (фрагмент)
-
 async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
     """
     Зберігає всі зібрані дані воронки у корінь документа Firebase (Flat Schema)
@@ -121,13 +129,19 @@ async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
         "email": data.get("email", ""),
         "phone": data.get("phone", ""),
         "gender": data.get("gender", ""),
-        "dateOfBirth": data.get("dateOfBirth", ""),
+        "dateOfBirth": data.get("dateOfBirth"),
         "ageGroup": data.get("ageGroup", ""),
-        "location": data.get("location", ""),
-        "ed_institution_name": data.get("school", ""),
-        "parent_name": data.get("parent_name", ""),
+        
+        "country": data.get("country", ""),
+        "city": data.get("city", ""),
+        "displaced_status": data.get("is_displaced", False),
+        "displaced_region": data.get("displaced_region", ""),
+        
+        "parent_first_name": data.get("parent_first_name", ""),
+        "parent_last_name": data.get("parent_last_name", ""),
         "parent_email": data.get("parent_email", ""),
         "parent_phone": data.get("parent_phone", ""),
+        
         "lead_source": data.get("lead_source", ""),
         "health_issues_bool": data.get("health_bool", False),
         "health_issues_details": data.get("health_details", ""),
@@ -151,7 +165,6 @@ async def update_crm_stage(doc_id: str, next_crm_stage: str):
     })
 
 # endregion
-
 
 # ==========================
 # region --- User Email State DB

@@ -1,5 +1,5 @@
 # bot/keyboards.py
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types.web_app_info import WebAppInfo
 import os
@@ -31,17 +31,7 @@ def get_start_registration_kb() -> InlineKeyboardMarkup:
 def get_number_for_registration_kb() -> ReplyKeyboardMarkup:
     """Кнопка для швидкої відправки номера телефону"""
     buttons = [
-        [KeyboardButton(text="📱 Поділитися номером", request_contact=True)]
-    ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
-
-def get_lead_source_kb() -> ReplyKeyboardMarkup:
-    """Клавіатура для джерел трафіку"""
-    buttons = [
-        [KeyboardButton(text="📱 Instagram"), KeyboardButton(text="📹 TikTok")],
-        [KeyboardButton(text="👥 Від друзів"), KeyboardButton(text="🏫 Від вчителів")],
-        [KeyboardButton(text="📰 Telegram-канали"), KeyboardButton(text="🌐 Facebook")],
-        [KeyboardButton(text="Інше")]
+        [KeyboardButton(text="📱 Поділитись номером",style="success", request_contact=True)]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
@@ -49,6 +39,17 @@ def get_gender_kb() -> ReplyKeyboardMarkup:
     buttons = [
         [KeyboardButton(text="Чоловіча"), KeyboardButton(text="Жіноча")],
         [KeyboardButton(text="Волію не відповідати")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def get_lead_source_kb() -> ReplyKeyboardMarkup:
+    """Клавіатура для джерел трафіку"""
+    buttons = [
+        [KeyboardButton(text="Школа"), KeyboardButton(text="Організація")],
+        [KeyboardButton(text="Instagram"), KeyboardButton(text="TikTok")],
+        [KeyboardButton(text="Від друзів"), KeyboardButton(text="Від батьків")],
+        [KeyboardButton(text="Telegram-канал"), KeyboardButton(text="Facebook")],
+        [KeyboardButton(text="Google"), KeyboardButton(text="ШІ"), KeyboardButton(text="Інше")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
@@ -172,8 +173,13 @@ def get_help_keyboard() -> InlineKeyboardMarkup:
 # ==========================
 # region --- Operational Buttons
 
-def get_cancel_kb() -> ReplyKeyboardMarkup:
-    buttons = [[KeyboardButton(text="❌ Скасувати")]]
+async def drop_reply_keyboard(message: Message) -> None:
+    """Миттєво збиває будь-яку застарілу Reply-клавіатуру з екрана клієнта Telegram."""
+    tmp = await message.answer("🔄", reply_markup=ReplyKeyboardRemove())
+    await tmp.delete()
+
+def get_back_to_menu_kb() -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text="🔙 Назад у меню")]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_notify_me_kb() -> InlineKeyboardMarkup:
@@ -201,7 +207,7 @@ def get_categories_kb() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Технічні баги")],
         [KeyboardButton(text="Освітній процес")],
         [KeyboardButton(text="Організаційні питання")],
-        [KeyboardButton(text="❌ Скасувати")]
+        [KeyboardButton(text="🔙 Назад у меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 

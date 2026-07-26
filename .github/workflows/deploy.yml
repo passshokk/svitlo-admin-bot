@@ -28,5 +28,7 @@ jobs:
           --source . \
           --region europe-west3 \
           --allow-unauthenticated \
+          --min-instances=1 \
+          --max-instances=5 \ 
           --memory 512Mi \
           --set-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}",SERVICE_URL="${{ secrets.SERVICE_URL }}",NOTION_TOKEN="${{ secrets.NOTION_TOKEN }}",WEBHOOK_SECRET="${{ secrets.WEBHOOK_SECRET }}"

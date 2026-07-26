@@ -73,10 +73,10 @@ class RequireAuthMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             await event.answer()
             await event.message.edit_text(text_1, parse_mode="HTML")
-            await event.message.answer(text_2, parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+            await event.message.answer(text_2, parse_mode="HTML")
         elif isinstance(event, Message):
             await event.answer(text_1, parse_mode="HTML")
-            await event.answer(text_2, parse_mode="HTML", reply_markup=kb.get_cancel_kb())
+            await event.answer(text_2, parse_mode="HTML")
             
         return
 
