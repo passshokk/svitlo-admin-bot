@@ -74,7 +74,7 @@ async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
         "1️⃣ Особиста інформація (~10 хвилин)\n"
         "2️⃣ Правила школи (~5 хвилин)\n"
         "3️⃣ Фото твого документу (~2 хвилини)\n\n"
-        "<b>Коли будеш готовий, тисни нижче 🚀</b>"
+        "<b>Коли будеш готовий, тисни нижче</b>"
     )
     
     await callback.message.edit_text(
@@ -98,7 +98,7 @@ async def start_entering_data(callback: CallbackQuery, state: FSMContext):
 
     # Запускаємо FSM
     await state.set_state(Registration.entering_first_name)
-    await callback.message.edit_text(reply_markup=None)
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
         "Чудово!\nПочнімо з кількох запитань про тебе 📝\n\n"
         "Єдине, що потрібно буде вказати англійською — це твоє ім'я. Наші викладачі є носіями мови, тож їм важливо знати, як до тебе звертатися 😊\n\n"
