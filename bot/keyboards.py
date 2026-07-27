@@ -8,6 +8,8 @@ from core.context import user_roles_ctx
 # ==========================
 # region --- Registration
 
+# --- profile data ---
+
 def get_start_menu() -> InlineKeyboardMarkup:
     """Стартове меню для ідентифікованих студентів та випускників"""
     buttons = [
@@ -57,6 +59,27 @@ def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text=yes_text), KeyboardButton(text=no_text)]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
+def get_data_confirmation_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Все правильно, йдемо далі", callback_data="confirm_data_success")
+    builder.button(text="✍️ Змінити певні дані", callback_data="confirm_data_edit")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_edit_fields_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Ім'я", callback_data="edit_field:first_name")
+    builder.button(text="👤 Прізвище", callback_data="edit_field:last_name")
+    builder.button(text="📅 ДН", callback_data="edit_field:dob")
+    builder.button(text="📧 Email", callback_data="edit_field:email")
+    builder.button(text="🌍 Країна", callback_data="edit_field:country")
+    builder.button(text="📍 Місто", callback_data="edit_field:city")
+    builder.button(text="🔙 Назад", callback_data="edit_field:cancel")
+    builder.adjust(2, 2, 2, 1)
+    return builder.as_markup()
+
+# --- rules & quiz ---
+
 def get_rules_start_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📗 Ознайомитися з правилами", callback_data="rules_start")
@@ -74,6 +97,8 @@ def get_quiz_kb(options: list) -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
+# --- ID check ---
+
 def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
     service_url = os.getenv("SERVICE_URL", "https://svitlo-auth-bot-956835627561.europe-west3.run.app")
     webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
@@ -84,6 +109,8 @@ def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
         web_app=WebAppInfo(url=webapp_url)
     )
     return builder.as_markup()
+
+# --- admin review ---
 
 def get_admin_action_kb(doc_id: str, tg_username: str, include_details_btn: bool = False) -> InlineKeyboardMarkup:
     """Генерує клавіатуру для кураторів (для нових лідів або розгорнутої анкети)"""
@@ -111,6 +138,8 @@ def get_admin_confirm_block_kb(doc_id: str) -> InlineKeyboardMarkup:
     
     builder.adjust(1)
     return builder.as_markup()
+
+# --- fallback ---
 
 def get_registration_cancel_confirm() -> InlineKeyboardMarkup:
     buttons = [

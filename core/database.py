@@ -249,3 +249,19 @@ async def set_ticket_rating(ticket_id: str, rating: int):
     return doc.to_dict()
 
 # endregion
+
+# ==========================
+# region --- FSM Helpers
+
+async def clear_user_fsm(user_id: int | str):
+    """Ізольоване видалення сесії FSM."""
+    await db.collection("FSM_Sessions").document(str(user_id)).delete()
+
+async def set_user_fsm_state(user_id: int | str, state_str: str):
+    """Ізольоване встановлення стейту FSM."""
+    await db.collection("FSM_Sessions").document(str(user_id)).set(
+        {"state": state_str}, 
+        merge=True
+    )
+
+# endregion

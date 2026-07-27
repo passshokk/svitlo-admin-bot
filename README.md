@@ -30,7 +30,7 @@ The project is architected as a highly scalable, stateless application running o
 
 Since the application runs on **GCP Cloud Run functions (Gen 2)**, the following architectural principles must be strictly followed during development:
 
-1. **Complete Statelessness:** The service is completely stateless. No data can be stored in-memory between Telegram requests. Global variables, local lists, or standard in-memory FSM (Finite State Machine) storages are strictly prohibited. All user states and caches must be read/written from Firestore in real-time.
+1. **Complete Statelessness:** The service is completely stateless. No data can be stored in-memory between Telegram requests. Global variables, local lists, or standard in-memory FSM (Finite State Machine) storages are strictly prohibited. All user states must be read/written from Firestore in real-time.
 2. **Webhook Timeout Limits:** GCF and Telegram Webhooks require an immediate response (`HTTP 200 OK`). For heavy or long-running tasks (e.g., Rowy/Notion API integrations), use non-blocking background tasks (`asyncio.create_task`) to prevent `HTTP 504/408` timeouts and duplicate request looping from Telegram.
 3. **Secret Management:** Sensitive credentials (like `BOT_TOKEN`) must never be hardcoded. They are injected as environment variables via GCP/GitHub Secrets.
 

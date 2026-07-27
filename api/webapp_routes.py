@@ -17,6 +17,7 @@ import gc
 
 from bot import keyboards as kb
 from core import database as db
+from core.database import db as firestore_client
 from core.bot_init import bot, dp
 from core import config as cfg
 
@@ -81,12 +82,6 @@ async def process_vision(payload: VisionPayload):
             [image_part, prompt],
             generation_config={"response_mime_type": "application/json"}
         )
-        # ВИВІЛЬНЕННЯ ПАМ'ЯТІ
-        del base64_str
-        del image_bytes
-        del image_part
-        gc.collect() # Примусовий тригер збирача сміття для миттєвого очищення RAM контейнера
-
         # Очищення можливого маркдауну перед парсингом
         clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.IGNORECASE)
         result = json.loads(clean_json)
@@ -101,16 +96,13 @@ async def process_vision(payload: VisionPayload):
             student_data = student['data']
             
             # Оновлюємо Flat Schema
-            await db.db.collection('Svitlo').document(doc_id).update({
+            await firestore_client.collection('Svitlo').document(doc_id).update({
                 "ai_doc_valid": True,
                 "ai_doc_type": result.get("doc_type", "unknown"),
                 "crm_stage": "admin_review",
                 "crm_stage_updated_at": db.get_kyivtime_now()
                 })
-            await db.db.collection('FSM_Sessions').document(str(user_id)).set(
-                {"state": "Registration:admin_review"}, 
-                merge=True
-                )
+            await db.set_user_fsm_state(user_id, "Registration:admin_review")
             
             # Server-Side Push: Сповіщаємо юзера про успіх
             try:

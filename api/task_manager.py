@@ -51,8 +51,5 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
         timestamp.FromDatetime(d)
         task["schedule_time"] = timestamp
 
-    # CloudTasksClient є синхронним, тому обгортаємо в to_thread
-    await asyncio.to_thread(
-        client.create_task, 
-        request={"parent": parent, "task": task}
-    )
+    # Нативний асинхронний виклик без to_thread
+    await client.create_task(request={"parent": parent, "task": task})

@@ -9,11 +9,12 @@ from zoneinfo import ZoneInfo
 import logging
 
 from core import database as db
+from core.database import db as firestore_client
 from bot import keyboards as kb
 from bot.states import Registration
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG
 from core.context import student_ctx
-from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX
+from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
 
 reg_router = Router()
 reg_router.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
@@ -98,17 +99,24 @@ async def start_entering_data(callback: CallbackQuery, state: FSMContext):
 @reg_router.message(Registration.entering_first_name, F.text)
 async def process_first_name(message: Message, state: FSMContext):
     first_name = message.text.strip().title()
+    if not re.match(ENG_NAME_REGEX, first_name):
+        await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
+        return
+        
     await state.update_data(first_name=first_name)
     await state.set_state(Registration.entering_last_name)
     await message.answer(f"Thanks {first_name}!\n"
-                        "Яке твоє <b>прізвище</b> (англійською)?")
+                         "Яке твоє <b>прізвище</b> (англійською)?")
 
 # ПРІЗВИЩЕ -> СТАТЬ
 @reg_router.message(Registration.entering_last_name, F.text)
 async def process_last_name(message: Message, state: FSMContext):
     last_name = message.text.strip().title()
+    if not re.match(ENG_NAME_REGEX, last_name):
+        await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
+        return
+        
     await state.update_data(last_name=last_name)
-    
     data = await state.get_data()
     full_name = f"{data.get('first_name', '')} {last_name}"
     
@@ -323,14 +331,122 @@ async def process_health_bool(message: Message, state: FSMContext):
         await message.answer("Будь ласка, опиши їх коротко (це важливо, аби могли забезпечити інклюзивне середовище):", reply_markup=ReplyKeyboardRemove())
     elif message.text.strip().lower() == "ні":
         await state.update_data(health_bool=False, health_details="")
-        await _finalize_personal_data(message, state)
+        await _show_data_confirmation(message, state)
     else:
         await message.answer("⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
 
 @reg_router.message(Registration.entering_health_details, F.text)
 async def process_health_details(message: Message, state: FSMContext):
     await state.update_data(health_details=message.text.strip())
-    await _finalize_personal_data(message, state)
+    await _show_data_confirmation(message, state)
+
+# ==========================================
+# Логіка відображення та редагування
+# ==========================================
+
+async def _show_data_confirmation(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.set_state(Registration.confirming_data)
+    
+    health_txt = f"Так ({data.get('health_details')})" if data.get('health_bool') else "Ні"
+    disp_txt = f"Так ({data.get('displaced_region')})" if data.get('is_displaced') else "Ні"
+    dob_obj = data.get('dateOfBirth')
+    dob_str = dob_obj.strftime("%d.%m.%Y") if hasattr(dob_obj, "strftime") else "Не вказано"
+    
+    summary = (
+        "<b>👀 Перевір свої дані:</b>\n\n"
+        f"👤 <b>ПІБ:</b> {data.get('first_name')} {data.get('last_name')}\n"
+        f"📅 <b>Дата народження:</b> {dob_str}\n"
+        f"📧 <b>Email:</b> {data.get('email')}\n"
+        f"📱 <b>Телефон:</b> {data.get('phone')}\n"
+        f"📍 <b>Проживання:</b> {data.get('city')}, {data.get('country')}\n"
+        f"🕊 <b>ВПО:</b> {disp_txt}\n\n"
+        f"👨‍👩‍👧 <b>Батьки:</b> {data.get('parent_first_name')} {data.get('parent_last_name')} | {data.get('parent_phone')}\n"
+        f"🏥 <b>Особливі потреби:</b> {health_txt}\n\n"
+        "Усе правильно?"
+    )
+    await message.answer(summary, reply_markup=kb.get_data_confirmation_kb())
+
+@reg_router.callback_query(Registration.confirming_data, F.data == "confirm_data_success")
+async def confirm_data_success(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _finalize_personal_data(callback.message, state)
+
+@reg_router.callback_query(Registration.confirming_data, F.data == "confirm_data_edit")
+async def confirm_data_edit(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text("<b>Що саме потрібно змінити?</b>", reply_markup=kb.get_edit_fields_kb())
+
+@reg_router.callback_query(Registration.confirming_data, F.data.startswith("edit_field:"))
+async def select_field_to_edit(callback: CallbackQuery, state: FSMContext):
+    field = callback.data.split(":")[1]
+    await callback.answer()
+    
+    if field == "cancel":
+        await callback.message.delete()
+        return await _show_data_confirmation(callback.message, state)
+        
+    await state.update_data(editing_field=field)
+    await state.set_state(Registration.editing_field)
+    
+    prompts = {
+        "first_name": "Введи нове <b>ім'я</b> (англійською):",
+        "last_name": "Введи нове <b>прізвище</b> (англійською):",
+        "dob": "Введи нову <b>дату народження</b> (ДД.ММ.РРРР):",
+        "email": "Введи новий <b>Email</b>:",
+        "country": "Введи нову <b>країну</b> проживання:",
+        "city": "Введи нове <b>місто</b> проживання:"
+    }
+    
+    await callback.message.delete()
+    await callback.message.answer(prompts[field])
+
+@reg_router.message(Registration.editing_field)
+async def process_field_edit(message: Message, state: FSMContext):
+    data = await state.get_data()
+    field = data.get("editing_field")
+    
+    if field == "first_name":
+        val = message.text.strip().title()
+        if not re.match(ENG_NAME_REGEX, val):
+            return await message.answer("⚠️ Лише латинка, пробіли, дефіси або апострофи.")
+        await state.update_data(first_name=val)
+        
+    elif field == "last_name":
+        val = message.text.strip().title()
+        if not re.match(ENG_NAME_REGEX, val):
+            return await message.answer("⚠️ Лише латинка, пробіли, дефіси або апострофи.")
+        await state.update_data(last_name=val)
+        
+    elif field == "dob":
+        try:
+            dob_obj = datetime.strptime(message.text.strip(), "%d.%m.%Y")
+            today = datetime.now()
+            age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
+            if not (10 <= age <= 18):
+                return await message.answer("⚠️ Твій вік виходить за рамки (10-18 років).")
+            age_group = "older" if 14 <= age <= 18 else "younger"
+            dob_timestamp = dob_obj.replace(tzinfo=ZoneInfo("Europe/Kyiv"))
+            await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
+        except ValueError:
+            return await message.answer("⚠️ Неправильний формат (ДД.ММ.РРРР).")
+            
+    elif field == "email":
+        val = message.text.lower().strip()
+        if not re.match(EMAIL_REGEX, val):
+            return await message.answer("⚠️ Неправильний формат Email.")
+        await state.update_data(email=val)
+        
+    elif field == "country":
+        await state.update_data(country=message.text.strip().title())
+        
+    elif field == "city":
+        await state.update_data(city=message.text.strip().title())
+        
+    # Очищуємо поле та повертаємо користувача до підтвердження
+    await state.update_data(editing_field=None)
+    await _show_data_confirmation(message, state)
 
 # endregion =====================================================
 # region INTERLUDE #1
@@ -441,7 +557,7 @@ async def alert_hidden_profile(callback: CallbackQuery):
 async def admin_show_lead_details(callback: CallbackQuery):
     doc_id = callback.data.split("_")[2]
     
-    doc = await db.db.collection('Svitlo').document(doc_id).get()
+    doc = await firestore_client.collection('Svitlo').document(doc_id).get()
     if not doc.exists:
         await callback.answer("Анкету не знайдено", show_alert=True)
         return
@@ -492,7 +608,7 @@ async def admin_block_lead(callback: CallbackQuery):
     doc_id = callback.data.split("_")[2]
     
     # 1. Отримуємо документ для витягування telegramId
-    doc_ref = db.db.collection('Svitlo').document(doc_id)
+    doc_ref = firestore_client.collection('Svitlo').document(doc_id)
     doc = await doc_ref.get()
     
     if not doc.exists:
@@ -511,7 +627,7 @@ async def admin_block_lead(callback: CallbackQuery):
     # 3. Гарантовано очищаємо FSM_Sessions, щоб не залишати сміття
     if user_id:
         try:
-            await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
+            await db.clear_user_fsm(user_id)
         except Exception as e:
             logging.warning(f"Не вдалося видалити FSM_Session для заблокованого юзера {user_id}: {e}")
 
@@ -542,7 +658,7 @@ async def admin_approve_lead(callback: CallbackQuery):
     doc_id = callback.data.split("_")[2]
     
     # 1. Оновлюємо статус в БД на 'student'
-    await db.db.collection('Svitlo').document(doc_id).update({
+    await firestore_client.collection('Svitlo').document(doc_id).update({
         "crm_stage": "student",
         "crm_stage_updated_at": db.get_kyivtime_now(),
         "roles": ["student"] # Надаємо базову роль
@@ -560,11 +676,11 @@ async def admin_approve_lead(callback: CallbackQuery):
     # 3. TODO: Тут буде виклик SchoolToday API
     
     # 4. Надсилаємо студенту привітання та Lock Screen меню
-    doc = await db.db.collection('Svitlo').document(doc_id).get()
+    doc = await firestore_client.collection('Svitlo').document(doc_id).get()
     user_id = doc.to_dict().get('telegramId')
     
     # Видаляємо технічний смітник з FSM_Sessions (фінальне очищення)
-    await db.db.collection("FSM_Sessions").document(str(user_id)).delete()
+    await db.clear_user_fsm(user_id)
     
     await callback.bot.send_message(
         chat_id=user_id,
@@ -627,7 +743,7 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
     else:
         # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
         user_id = str(callback.from_user.id)
-        await db.db.collection('Svitlo').document(user_id).update({
+        await firestore_client.collection('Svitlo').document(user_id).update({
             "crm_stage": "lead"
         })
 

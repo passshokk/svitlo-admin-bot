@@ -28,6 +28,9 @@ class Registration(StatesGroup):
     entering_lead_source = State()
     entering_health_bool = State()
     entering_health_details = State()
+
+    confirming_data = State()
+    editing_field = State()
     
     passing_rules = State()
     uploading_docs = State()

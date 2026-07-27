@@ -20,9 +20,11 @@ DEV_IDS = [1125108435
 
 MAIN_CURATOR_USERNAME = "@passshokk"
 
+# ----------------------------------
 
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 PHONE_REGEX = r'^\+[1-9]\d{7,14}$'
+ENG_NAME_REGEX = r'^[A-Za-z\s\-\']{2,20}$'
 
 ROLE_MAP = {
     "itt": "💻 ITT member",
