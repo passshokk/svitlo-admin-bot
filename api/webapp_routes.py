@@ -20,6 +20,7 @@ from core import database as db
 from core.database import db as firestore_client
 from core.bot_init import bot, dp
 from core import config as cfg
+from core.constants import APPLICATION_RECEIVED_MSG
 
 # Приховає рівень WARNING від внутрішніх логерів Vertex AI
 logging.getLogger("root").setLevel(logging.ERROR)
@@ -108,7 +109,7 @@ async def process_vision(payload: VisionPayload):
             try:
                 await bot.send_message(
                     chat_id=user_id,
-                    text="✅ <b>Документ успішно розпізнано!</b>\nТвоя заявка передана кураторам на фінальне затвердження. Очікуй на повідомлення",
+                    text=APPLICATION_RECEIVED_MSG,
                     parse_mode="HTML"
                 )
             except Exception as e:

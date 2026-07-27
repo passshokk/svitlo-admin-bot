@@ -12,7 +12,7 @@ from core import database as db
 from core.database import db as firestore_client
 from bot import keyboards as kb
 from bot.states import Registration
-from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG
+from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
 from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
 
@@ -131,8 +131,12 @@ async def process_last_name(message: Message, state: FSMContext):
 @reg_router.message(Registration.entering_gender, F.text)
 async def process_gender(message: Message, state: FSMContext):
     gender = message.text.strip()
-    if gender in ['Чоловіча', 'Жіноча', 'Волію не відповідати']:
-        await state.update_data(gender=gender)
+    if gender in ['Чоловіча', 'Жіноча', 'Волію не вказувати']:
+        if gender == "Чоловіча": db_gender = "Male"
+        elif gender == "Жіноча": db_gender = "Female"
+        else: db_gender = "Unspecified"
+        await state.update_data(gender=db_gender)
+
         await state.set_state(Registration.entering_dob)
         await message.answer(
             "Введи свою <b>дату народження</b> у форматі ДД.ММ.РРРР (наприклад: 10.01.2015):",
@@ -341,7 +345,7 @@ async def process_health_details(message: Message, state: FSMContext):
     await _show_data_confirmation(message, state)
 
 # ==========================================
-# Логіка відображення та редагування
+# Логіка перевірки заявки та редагування
 # ==========================================
 
 async def _show_data_confirmation(message: Message, state: FSMContext):
@@ -529,7 +533,7 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         first_name = data.get('first_name', '')
 
-        await callback.message.answer(LEAD_INTERLUDE_2_MSG.replace("[Name]", f"{first_name}"))
+        await callback.message.answer(LEAD_INTERLUDE_2_MSG.format(name=first_name))
         await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
         await state.set_state(Registration.uploading_docs)
 
@@ -539,10 +543,6 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
 # endregion =====================================================
 # region ADMIN REVIEW
 # ===============================================================
-
-@reg_router.message(Registration.admin_review)
-async def process_admin_review_wait(message: Message):
-    await message.answer("⏳ Твоя заявка зараз перевіряється куратором. Зачекай результату")
 
 @reg_router.callback_query(F.data == "hidden_profile_alert")
 async def alert_hidden_profile(callback: CallbackQuery):
@@ -677,16 +677,28 @@ async def admin_approve_lead(callback: CallbackQuery):
     
     # 4. Надсилаємо студенту привітання та Lock Screen меню
     doc = await firestore_client.collection('Svitlo').document(doc_id).get()
-    user_id = doc.to_dict().get('telegramId')
-    
+    data = doc.to_dict()
+
+    user_id = data.get('telegramId')
     # Видаляємо технічний смітник з FSM_Sessions (фінальне очищення)
     await db.clear_user_fsm(user_id)
     
+    first_name = data.get('first_name', 'Student')
+    gender = data.get('gender', '')
+    if gender == "Male": dp_gender = "студент"
+    elif gender == "Female": dp_gender = "студентка"
+    else: dp_gender = "студент(-ка)"
+
+    formatted_text = APPLICATION_CONFIRMED_MSG.format(
+        name=first_name,
+        student=dp_gender,
+        term_start_date="Понеділок, 14 вересня 2026 року",
+        schooltoday_link="https://school-today.com/Profile"
+    )
+
     await callback.bot.send_message(
         chat_id=user_id,
-        text="🎉 <b>Вітаємо! Твою заявку схвалено.</b>\n"
-             "Ти офіційно стаєш частиною SvitloSchool!\n\n"
-             "Щоб розблокувати меню бота та отримати доступ до уроків, натисни кнопку нижче:",
+        text=formatted_text,
         parse_mode="HTML",
         reply_markup=kb.get_start_menu() # Кнопка "Отримати доступ"
     )
@@ -707,17 +719,14 @@ async def fallback_waiting_scan(message: Message):
         reply_markup=kb.get_scanner_webapp_kb()
     )
 
+@reg_router.message(Registration.admin_review)
+async def process_admin_review_wait(message: Message):
+    await message.answer("⏳ Твоя заявка зараз перевіряється куратором. Зачекай результату")
+
 
 # --- 1. Інтерцептор команд під час реєстрації ---
 @reg_router.message(StateFilter(Registration), Command("start", "menu", "profile", "house"))
 async def cmd_during_registration(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    
-    # Якщо це підтвердження адміна — не перебиваємо
-    if current_state == Registration.admin_review.state:
-        await message.answer("Твоя заявка вже на перевірці у кураторів! Очікуй на рішення")
-        return
-
     await message.answer(
         "<b>⚠️ Ти перебуваєш в процесі реєстрації до Svitlo School!</b>\n\n"
         "Якщо ти вийдеш зараз, <b>заповнені дані не збережуться</b>, а доступ до функцій бота буде обмежено до завершення воронки",

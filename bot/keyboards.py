@@ -40,7 +40,7 @@ def get_number_for_registration_kb() -> ReplyKeyboardMarkup:
 def get_gender_kb() -> ReplyKeyboardMarkup:
     buttons = [
         [KeyboardButton(text="Чоловіча"), KeyboardButton(text="Жіноча")],
-        [KeyboardButton(text="Волію не відповідати")]
+        [KeyboardButton(text="Волію не вказувати")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 

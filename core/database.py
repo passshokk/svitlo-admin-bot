@@ -79,8 +79,8 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "onboarding_followup_sent": 0,
         
         # 👤 Student Info
-        "name": "",
-        "surname": "",
+        "first_name": "",
+        "last_name": "",
         "email": "",
         "phone": "",
         "gender": "",
@@ -124,8 +124,8 @@ async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
     та переводить ліда на наступний етап.
     """
     payload = {
-        "name": data.get("first_name", ""),
-        "surname": data.get("last_name", ""),
+        "first_name": data.get("first_name", ""),
+        "last_name": data.get("last_name", ""),
         "email": data.get("email", ""),
         "phone": data.get("phone", ""),
         "gender": data.get("gender", ""),
