@@ -169,7 +169,7 @@ async def process_dob(message: Message, state: FSMContext):
                              "Тепер перейдімо до твоїх контактних даних")
         await message.answer("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)?")
     except ValueError:
-        await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2008)")
+        await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 10.01.2015)")
 
 # EMAIL -> ТЕЛЕФОН
 @reg_router.message(Registration.entering_email, F.text)
@@ -415,13 +415,13 @@ async def process_field_edit(message: Message, state: FSMContext):
     if field == "first_name":
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
-            return await message.answer("⚠️ Лише латинка, пробіли, дефіси або апострофи.")
+            return await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
         await state.update_data(first_name=val)
         
     elif field == "last_name":
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
-            return await message.answer("⚠️ Лише латинка, пробіли, дефіси або апострофи.")
+            return await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
         await state.update_data(last_name=val)
         
     elif field == "dob":
@@ -430,17 +430,17 @@ async def process_field_edit(message: Message, state: FSMContext):
             today = datetime.now()
             age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
             if not (10 <= age <= 18):
-                return await message.answer("⚠️ Твій вік виходить за рамки (10-18 років).")
+                return await message.answer("⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             age_group = "older" if 14 <= age <= 18 else "younger"
             dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
             await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
         except ValueError:
-            return await message.answer("⚠️ Неправильний формат (ДД.ММ.РРРР).")
+            return await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 10.01.2015)")
             
     elif field == "email":
         val = message.text.lower().strip()
         if not re.match(EMAIL_REGEX, val):
-            return await message.answer("⚠️ Неправильний формат Email.")
+            return await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
         await state.update_data(email=val)
         
     elif field == "country":
