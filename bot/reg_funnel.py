@@ -123,7 +123,7 @@ async def process_last_name(message: Message, state: FSMContext):
         f"Nice to meet you, {full_name}! ☺️\n\n"
         "<b>Зверни увагу, решту заявки слід заповнювати українською!</b> 🇺🇦"
     )
-    await message.answer("<b>Обери свою стать:</b>", reply_markup=kb.get_gender_kb(), parse_mode="HTML")
+    await message.answer("Обери свою <b>стать</b>:", reply_markup=kb.get_gender_kb(), parse_mode="HTML")
 
 # СТАТЬ -> ДАТА НАРОДЖЕННЯ
 @reg_router.message(Registration.entering_gender, F.text)
@@ -137,7 +137,7 @@ async def process_gender(message: Message, state: FSMContext):
 
         await state.set_state(Registration.entering_dob)
         await message.answer(
-            "Введи свою <b>дату народження</b> у форматі ДД.ММ.РРРР (наприклад: 10.01.2015):",
+            "Введи свою <b>дату народження</b> у форматі ДД.ММ.РРРР (наприклад: 24.08.2011):",
             reply_markup=ReplyKeyboardRemove()
         )
     else:
@@ -169,7 +169,7 @@ async def process_dob(message: Message, state: FSMContext):
                              "Тепер перейдімо до твоїх контактних даних")
         await message.answer("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)?")
     except ValueError:
-        await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 10.01.2015)")
+        await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2011)")
 
 # EMAIL -> ТЕЛЕФОН
 @reg_router.message(Registration.entering_email, F.text)
@@ -435,7 +435,7 @@ async def process_field_edit(message: Message, state: FSMContext):
             dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
             await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
         except ValueError:
-            return await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 10.01.2015)")
+            return await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2011)")
             
     elif field == "email":
         val = message.text.lower().strip()
