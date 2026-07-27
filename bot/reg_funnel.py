@@ -4,7 +4,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import logging
 
@@ -87,7 +87,7 @@ async def start_entering_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Чудово!\n<b>Почнімо з кількох запитань про тебе 📝</b>\n\n"
         "Єдине, що потрібно буде вказати англійською — це твоє ім'я. Наші викладачі є носіями мови, тож їм важливо знати, як до тебе звертатися 😊\n\n"
-        "Решту анкети можна заповнювати українською"
+        "Решту анкети можна заповнювати українською 🇺🇦"
     )
     await callback.message.answer("Будь ласка, введи своє <b>ім'я</b> (англійською):")
 
@@ -161,8 +161,8 @@ async def process_dob(message: Message, state: FSMContext):
             
         age_group = "older" if 14 <= age <= 18 else "younger" if 10 <= age <= 13 else "error"
         
-        # Конвертація в timezone-aware datetime одразу тут
-        dob_timestamp = dob_obj.replace(tzinfo=ZoneInfo("Europe/Kyiv"))
+        # Встановлюємо 12:00 UTC, щоб уникнути багів зміни дня через таймзони
+        dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
         
         # Тепер в FSM лежить нативний об'єкт datetime
         await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
@@ -431,7 +431,7 @@ async def process_field_edit(message: Message, state: FSMContext):
             if not (10 <= age <= 18):
                 return await message.answer("⚠️ Твій вік виходить за рамки (10-18 років).")
             age_group = "older" if 14 <= age <= 18 else "younger"
-            dob_timestamp = dob_obj.replace(tzinfo=ZoneInfo("Europe/Kyiv"))
+            dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
             await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
         except ValueError:
             return await message.answer("⚠️ Неправильний формат (ДД.ММ.РРРР).")
