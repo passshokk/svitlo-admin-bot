@@ -218,8 +218,8 @@ async def drop_reply_keyboard(message: Message) -> None:
     tmp = await message.answer("🔄", reply_markup=ReplyKeyboardRemove())
     await tmp.delete()
 
-def get_back_to_menu_kb() -> ReplyKeyboardMarkup:
-    buttons = [[KeyboardButton(text="🔙 Назад у меню")]]
+def get_email_cancel_kb() -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text="🚫 Скасувати введення")]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_notify_me_kb() -> InlineKeyboardMarkup:
@@ -241,6 +241,10 @@ def get_sasha_curator_keyboard() -> InlineKeyboardMarkup:
 # endregion
 # ==========================
 # region --- Ticket System
+
+def get_ticket_cancel_kb() -> ReplyKeyboardMarkup:
+    buttons = [[KeyboardButton(text="🔙 Назад у меню")]]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_categories_kb() -> ReplyKeyboardMarkup:
     buttons = [

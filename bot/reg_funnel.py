@@ -5,7 +5,6 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 import re
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 import logging
 
 from core import database as db
@@ -43,7 +42,6 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_guest_start_menu()
         )
-    await kb.drop_reply_keyboard(message)
 
 # --- РОЗГАЛУЖЕННЯ ДЛЯ СТАРИХ СТУДЕНТІВ ---
 @reg_router.callback_query(F.data == "auth_existing")
@@ -51,7 +49,7 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(Registration.waiting_email)
     await callback.message.edit_text("🔐 <b>Синхронізація акаунта</b>")
-    await callback.message.answer("Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:")
+    await callback.message.answer("Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 #endregion -----------------------------------------------------
 
 # ===============================================================
@@ -358,14 +356,14 @@ async def _show_data_confirmation(message: Message, state: FSMContext):
     dob_str = dob_obj.strftime("%d.%m.%Y") if hasattr(dob_obj, "strftime") else "Не вказано"
     
     summary = (
-        "<b>👀 Перевір свої дані:</b>\n\n"
-        f"👤 <b>ПІБ:</b> {data.get('first_name')} {data.get('last_name')}\n"
+        "<b>👀 Перевір свої дані перед збереженням:</b>\n\n"
+        f"👤 <b>Ім'я:</b> {data.get('first_name')} {data.get('last_name')}\n"
         f"📅 <b>Дата народження:</b> {dob_str}\n"
         f"📧 <b>Email:</b> {data.get('email')}\n"
         f"📱 <b>Телефон:</b> {data.get('phone')}\n"
         f"📍 <b>Проживання:</b> {data.get('city')}, {data.get('country')}\n"
         f"🕊 <b>ВПО:</b> {disp_txt}\n\n"
-        f"👨‍👩‍👧 <b>Батьки:</b> {data.get('parent_first_name')} {data.get('parent_last_name')} | {data.get('parent_phone')}\n"
+        f"👨‍👩‍👧 <b>Відповідальна особа:</b>\n{data.get('parent_first_name')} {data.get('parent_last_name')}\n{data.get('parent_email')}\n{data.get('parent_phone')}\n"
         f"🏥 <b>Особливі потреби:</b> {health_txt}\n\n"
         "Усе правильно?"
     )
@@ -380,7 +378,10 @@ async def confirm_data_success(callback: CallbackQuery, state: FSMContext):
 @reg_router.callback_query(Registration.confirming_data, F.data == "confirm_data_edit")
 async def confirm_data_edit(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.edit_text("<b>Що саме потрібно змінити?</b>", reply_markup=kb.get_edit_fields_kb())
+    old_html = callback.message.html_text
+    new_html = old_html.replace("Усе правильно?", "<b>Що саме потрібно змінити?</b>")
+    
+    await callback.message.edit_text(text=new_html, reply_markup=kb.get_edit_fields_kb())
 
 @reg_router.callback_query(Registration.confirming_data, F.data.startswith("edit_field:"))
 async def select_field_to_edit(callback: CallbackQuery, state: FSMContext):
@@ -738,7 +739,7 @@ async def cmd_during_registration(message: Message, state: FSMContext):
 async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.delete()
-    await callback.message.answer("Чудово, продовжуємо! Введи відповідь на останнє вищепоставлене запитання")
+    await callback.message.answer("Чудово, продовжуємо! Введи відповідь на останнє запитання вище")
 
 @reg_router.callback_query(F.data == "reg_restart")
 async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
@@ -783,7 +784,7 @@ async def process_invalid_registration_input(message: Message, state: FSMContext
         )
     else:
         await message.answer(
-            "Очікується текстова відповідь. Будь ласка, введи потрібні дані текстом або скористайся кнопками меню"
+            "Очікується текстова відповідь.\nБудь ласка, введи потрібні дані текстом або скористайся кнопками меню"
         )
 
 

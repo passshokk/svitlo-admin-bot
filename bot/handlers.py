@@ -74,7 +74,6 @@ async def cmd_start(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=kb.get_start_menu()
     )
-    await kb.drop_reply_keyboard(message)
 
 @public_router.message(Command("menu"), F.chat.type == "private")
 async def cmd_menu(message: Message, state: FSMContext):
@@ -83,7 +82,6 @@ async def cmd_menu(message: Message, state: FSMContext):
         "Вітаю у SvitloMenu! Обирай:",
         reply_markup=kb.get_main_menu()
     )
-    await kb.drop_reply_keyboard(message)
 
 @private_router.message(Command("profile"), F.chat.type == "private")
 async def cmd_profile(message: Message, state: FSMContext):
@@ -151,7 +149,7 @@ async def reg_for_access(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації в SvitloSchool:",
         parse_mode="HTML",
-        reply_markup=kb.get_back_to_menu_kb()
+        reply_markup=kb.get_email_cancel_kb()
     )
 
 @public_router.callback_query(F.data == "verify")
@@ -163,7 +161,7 @@ async def verify_for_access(callback: CallbackQuery, state: FSMContext):
     if not student:
         await state.set_state(Registration.waiting_email)
         await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>")
-        await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_back_to_menu_kb())
+        await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
         return
     
     # 2. Юзер - повноцінний студент або стаф -> Пускаємо в меню
@@ -326,8 +324,7 @@ async def inline_close_ticket(callback: CallbackQuery):
     old_html = callback.message.html_text
     new_html = old_html.replace("Новий тікет", "✅ <b>ЗАКРИТИЙ тікет</b>")
     await callback.message.edit_text(
-        text=new_html, 
-        parse_mode="HTML", 
+        text=new_html,
         reply_markup=kb.get_closed_ticket_kb(assigned_curator),
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
@@ -457,14 +454,10 @@ async def show_prefect_info(callback: CallbackQuery):
 # region FSM (Messages)
 # ===============================================================
 
-@public_router.message(
-    StateFilter(TicketFSM.choosing_category, TicketFSM.writing_first_message),
-    F.text.in_(["🔙 Назад у меню", "Скасувати"])
-)
+@public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "Скасувати"]))
 async def cancel_ticket_fsm(message: Message, state: FSMContext):
     await state.clear()
-    await kb.drop_reply_keyboard(message)
-    await message.answer("Створення тікета скасовано 👌")
+    await message.answer("Створення запиту скасовано 👌", reply_markup=ReplyKeyboardRemove())
     await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
 
 @public_router.message(TicketFSM.choosing_category, F.text.in_(["Технічні баги", "Освітній процес", "Організаційні питання"]))
@@ -475,7 +468,7 @@ async def category_chosen(message: Message, state: FSMContext):
         "<b>Розкажи, що трапилося 👀</b>\n"
         "<i>Можеш надсилати не лише текст, а голосові, фото чи відео:</i>", 
         parse_mode="HTML",
-        reply_markup=kb.get_back_to_menu_kb()
+        reply_markup=kb.get_ticket_cancel_kb()
     )
 
 @public_router.message(TicketFSM.choosing_category)
@@ -537,6 +530,12 @@ async def first_ticket_message(message: Message, state: FSMContext):
     
     await state.clear()
     await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
+
+@public_router.message(Registration.waiting_email, F.text.in_(["🚫 Скасувати введення", "Скасувати"]))
+async def cancel_email_input(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Введення пошти скасовано 👌", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⚠️ Зауваж, якщо ти не синхронізуєш акаунт, ти не зможеш користуватись повним функціоналом бота!\nЗа допомогою звернись у /help")
 
 @public_router.message(Registration.waiting_email, F.text)
 async def process_email_input(message: Message, state: FSMContext):
