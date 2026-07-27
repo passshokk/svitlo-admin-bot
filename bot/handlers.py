@@ -69,21 +69,21 @@ tg_router.include_router(fallback_router)
 @public_router.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    await kb.drop_reply_keyboard(message)
     await message.answer(
         "Привіт! Я твій помічник у SvitloSchool ☺️\n<b>Ти вже є в загальному чаті своєї вікової групи?</b>",
         parse_mode="HTML",
         reply_markup=kb.get_start_menu()
     )
+    await kb.drop_reply_keyboard(message)
 
 @public_router.message(Command("menu"), F.chat.type == "private")
 async def cmd_menu(message: Message, state: FSMContext):
     await state.clear()
-    await kb.drop_reply_keyboard(message)
     await message.answer(
         "Вітаю у SvitloMenu! Обирай:",
         reply_markup=kb.get_main_menu()
     )
+    await kb.drop_reply_keyboard(message)
 
 @private_router.message(Command("profile"), F.chat.type == "private")
 async def cmd_profile(message: Message, state: FSMContext):

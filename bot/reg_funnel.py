@@ -25,7 +25,6 @@ reg_router.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.message.chat.typ
 @reg_router.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    await kb.drop_reply_keyboard(message)
     student = student_ctx.get()
     student_stage = student['data'].get('crm_stage') if student else None
 
@@ -44,6 +43,7 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_guest_start_menu()
         )
+    await kb.drop_reply_keyboard(message)
 
 # --- РОЗГАЛУЖЕННЯ ДЛЯ СТАРИХ СТУДЕНТІВ ---
 @reg_router.callback_query(F.data == "auth_existing")
