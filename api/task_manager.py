@@ -1,7 +1,6 @@
-# task_manager.py
+# api/task_manager.py
 import os
 import json
-import asyncio
 from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
@@ -12,15 +11,14 @@ QUEUE_NAME = "bot-tasks-queue"
 
 SERVICE_URL = os.getenv("SERVICE_URL") 
 
-# Зберігаємо клієнт як глобальну змінну, але ініціалізуємо ліниво
-_client: tasks_v2.CloudTasksClient | None = None
+_async_client: tasks_v2.CloudTasksAsyncClient | None = None
 
-def _get_tasks_client() -> tasks_v2.CloudTasksClient:
-    global _client
-    if _client is None:
-        # Ініціалізація відбудеться лише при першому виклику таски (не на старті контейнера)
-        _client = tasks_v2.CloudTasksClient()
-    return _client
+def _get_async_tasks_client() -> tasks_v2.CloudTasksAsyncClient:
+    global _async_client
+    if _async_client is None:
+        # Використовуємо асинхронний клієнт SDK
+        _async_client = tasks_v2.CloudTasksAsyncClient()
+    return _async_client
 
 async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
     """
@@ -32,7 +30,7 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
     if not SERVICE_URL:
         raise ValueError("SERVICE_URL is missing in environment variables.")
 
-    client = _get_tasks_client()
+    client = _get_async_tasks_client()
     parent = client.queue_path(PROJECT_ID, REGION, QUEUE_NAME)
     url = f"{SERVICE_URL.rstrip('/')}{endpoint}"
 
@@ -40,7 +38,7 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
         "http_request": {
             "http_method": tasks_v2.HttpMethod.POST,
             "url": url,
-            "headers": {"Content-type": "application/json"},
+            "headers": {"Content-Type": "application/json"},
             "body": json.dumps(payload).encode(),
         }
     }
@@ -51,5 +49,5 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
         timestamp.FromDatetime(d)
         task["schedule_time"] = timestamp
 
-    # Нативний асинхронний виклик без to_thread
+    # Тепер create_task повертає асинхронний корутин-об'єкт
     await client.create_task(request={"parent": parent, "task": task})
