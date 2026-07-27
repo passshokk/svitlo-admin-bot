@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 import logging
+import gc
 
 from bot import keyboards as kb
 from core import database as db
@@ -80,6 +81,12 @@ async def process_vision(payload: VisionPayload):
             [image_part, prompt],
             generation_config={"response_mime_type": "application/json"}
         )
+        # ВИВІЛЬНЕННЯ ПАМ'ЯТІ
+        del base64_str
+        del image_bytes
+        del image_part
+        gc.collect() # Примусовий тригер збирача сміття для миттєвого очищення RAM контейнера
+
         # Очищення можливого маркдауну перед парсингом
         clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.IGNORECASE)
         result = json.loads(clean_json)

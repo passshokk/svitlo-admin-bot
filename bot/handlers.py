@@ -767,7 +767,7 @@ async def curator_reply_handler(message: Message):
         print(f"Не вдалося поставити реакцію: {e}")
 
 # endregion =====================================================
-# region FALLBACKS
+# region FALLBACKs
 # ===============================================================
 
 @fallback_router.message(F.chat.type == "private", F.text.startswith("/"))

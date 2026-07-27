@@ -59,6 +59,11 @@ def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
 
 def get_rules_start_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="📗 Ознайомитися з правилами", callback_data="rules_start")
+    return builder.as_markup()
+
+def get_quiz_start_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
     builder.button(text="✅ Прочитано. Почати квіз!", callback_data="quiz_start")
     return builder.as_markup()
 
@@ -75,7 +80,7 @@ def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
     
     builder = InlineKeyboardBuilder()
     builder.button(
-        text="📸 Сканер документів", 
+        text="📸 Сканувати документ", 
         web_app=WebAppInfo(url=webapp_url)
     )
     return builder.as_markup()
@@ -102,11 +107,17 @@ def get_admin_confirm_block_kb(doc_id: str) -> InlineKeyboardMarkup:
     """Клавіатура підтвердження видалення ліда (захист від міскліку)"""
     builder = InlineKeyboardBuilder()
     builder.button(text="⚠️ Так, точно відхилити", callback_data=f"lead_block_{doc_id}")
-    # Повертає до розгорнутої анкети, скасовуючи видалення
     builder.button(text="🔙 Скасувати", callback_data=f"lead_details_{doc_id}")
     
     builder.adjust(1)
     return builder.as_markup()
+
+def get_registration_cancel_confirm() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="▶️ Продовжити реєстрацію", callback_data="reg_resume")],
+        [InlineKeyboardButton(text="❌ Скасувати та пройти наново", callback_data="reg_restart")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # endregion
 # ==========================

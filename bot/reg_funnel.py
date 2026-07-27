@@ -1,6 +1,6 @@
 # bot/reg_funnel.py
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 import re
@@ -11,7 +11,7 @@ import logging
 from core import database as db
 from bot import keyboards as kb
 from bot.states import Registration
-from core.constants import QUIZ_DATA
+from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG
 from core.context import student_ctx
 from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX
 
@@ -60,25 +60,9 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
 @reg_router.callback_query(F.data == "auth_new_lead")
 async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    
-    # Ініціалізуємо ліда в БД з усіма 25 колонками
     await db.init_lead(callback.from_user.id, callback.from_user.username)
-    
-    welcome_text = (
-        "Раді тебе бачити!\n"
-        "⏱️ Подача заявки до Svitlo School займає близько 17 хвилин.\n\n"
-        "<b>Перш ніж почати, переконайся, що маєш:</b>\n"
-        "✅ Контактні дані одного з твоїх батьків/опікунів\n"
-        "✅ Твоя ID карта, закордонний паспорт або свідоцтво про народження\n\n"
-        "<b>Тобі слід буде пройти три простих етапи:</b>\n"
-        "1️⃣ Особиста інформація (~10 хвилин)\n"
-        "2️⃣ Правила школи (~5 хвилин)\n"
-        "3️⃣ Фото твого документу (~2 хвилини)\n\n"
-        "<b>Коли будеш готовий, тисни нижче</b>"
-    )
-    
     await callback.message.edit_text(
-        welcome_text, 
+        LEAD_WELCOME_MSG, 
         parse_mode="HTML", 
         reply_markup=kb.get_start_registration_kb()
     )
@@ -100,7 +84,7 @@ async def start_entering_data(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Registration.entering_first_name)
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        "Чудово!\nПочнімо з кількох запитань про тебе 📝\n\n"
+        "Чудово!\n<b>Почнімо з кількох запитань про тебе 📝</b>\n\n"
         "Єдине, що потрібно буде вказати англійською — це твоє ім'я. Наші викладачі є носіями мови, тож їм важливо знати, як до тебе звертатися 😊\n\n"
         "Решту анкети можна заповнювати українською"
     )
@@ -116,7 +100,7 @@ async def process_first_name(message: Message, state: FSMContext):
     first_name = message.text.strip().title()
     await state.update_data(first_name=first_name)
     await state.set_state(Registration.entering_last_name)
-    await message.answer(f"Дякую, {first_name}!\n"
+    await message.answer(f"Thanks {first_name}!\n"
                         "Яке твоє <b>прізвище</b> (англійською)?")
 
 # ПРІЗВИЩЕ -> СТАТЬ
@@ -133,7 +117,7 @@ async def process_last_name(message: Message, state: FSMContext):
         f"Nice to meet you, {full_name}! ☺️\n\n"
         "<b>Зверни увагу, решту заявки слід заповнювати українською!</b> 🇺🇦"
     )
-    await message.answer("Обери свою <b>стать</b>:", reply_markup=kb.get_gender_kb(), parse_mode="HTML")
+    await message.answer("<b>Обери свою стать:</b>", reply_markup=kb.get_gender_kb(), parse_mode="HTML")
 
 # СТАТЬ -> ДАТА НАРОДЖЕННЯ
 @reg_router.message(Registration.entering_gender, F.text)
@@ -156,7 +140,8 @@ async def process_dob(message: Message, state: FSMContext):
     try:
         # Валідація дати та розрахунок вікової групи
         dob_obj = datetime.strptime(dob_str, "%d.%m.%Y")
-        age = (datetime.now() - dob_obj).days // 365
+        today = datetime.now()
+        age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
         
         if not (10 <= age <= 18):
             await message.answer("⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
@@ -186,7 +171,8 @@ async def process_email(message: Message, state: FSMContext):
 
     await state.update_data(email=email)
     await state.set_state(Registration.entering_phone)
-
+    
+    # Повідомлення 1
     await message.answer("Який твій <b>номер телефону</b>?")
     # Повідомлення 2: Інструкція + HTML Blockquote
     phone_instructions = (
@@ -201,6 +187,10 @@ async def process_email(message: Message, state: FSMContext):
 # Прийом виключно контактних даних від кнопки
 @reg_router.message(Registration.entering_phone, F.contact)
 async def process_phone_contact(message: Message, state: FSMContext):
+    if message.contact.user_id != message.from_user.id:
+        await message.answer("⚠️ Будь ласка, надішли саме свій контакт за допомогою кнопки <b>«Поділитись номером»</b> внизу екрана ↘️")
+        return
+    
     phone = message.contact.phone_number
     phone = '+' + phone if not phone.startswith('+') else phone
 
@@ -256,7 +246,7 @@ async def process_displaced_status(message: Message, state: FSMContext):
             "Дякую! Далі кілька запитань про одного з твоїх батьків або опікунів. Це необхідно, аби ми могли зв’язатися з ними в разі надзивчайної ситуації",
             reply_markup=ReplyKeyboardRemove()
         )
-        await message.answer("<b>Вкажи ім'я одного з батьків/опікунів</b>:")
+        await message.answer("Вкажи <b>ім'я одного з батьків/опікунів</b>:")
     else:
         await message.answer("⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
 
@@ -271,20 +261,20 @@ async def process_displaced_region(message: Message, state: FSMContext):
                 "Далі кілька запитань про одного з твоїх батьків або опікунів. Це необхідно, аби ми могли зв’язатися з ними в разі надзивчайної ситуації",
                 reply_markup=ReplyKeyboardRemove()
             )
-    await message.answer("<b>Вкажи ім'я одного з батьків/опікунів</b>:")
+    await message.answer("Вкажи <b>ім'я одного з батьків/опікунів</b>:")
 
 # БАТЬКИ (Ім'я -> Прізвище -> Email -> Телефон)
 @reg_router.message(Registration.entering_parent_first_name, F.text)
 async def process_parent_first_name(message: Message, state: FSMContext):
     await state.update_data(parent_first_name=message.text.strip().title())
     await state.set_state(Registration.entering_parent_last_name)
-    await message.answer("<b>Вкажи прізвище одного з батьків/опікунів</b>:")
+    await message.answer("Вкажи <b>прізвище одного з батьків/опікунів</b>:")
 
 @reg_router.message(Registration.entering_parent_last_name, F.text)
 async def process_parent_last_name(message: Message, state: FSMContext):
     await state.update_data(parent_last_name=message.text.strip().title())
     await state.set_state(Registration.entering_parent_email)
-    await message.answer("<b>Яка електронна пошта в одного з твоїх батьків/опікунів?</b>")
+    await message.answer("Яка <b>електронна пошта в одного з твоїх батьків/опікунів?</b>")
 
 @reg_router.message(Registration.entering_parent_email, F.text)
 async def process_parent_email(message: Message, state: FSMContext):
@@ -295,7 +285,7 @@ async def process_parent_email(message: Message, state: FSMContext):
     
     await state.update_data(parent_email=email)
     await state.set_state(Registration.entering_parent_phone)
-    await message.answer("<b>І який номер телефону в одного з твоїх батьків/опікунів?</b> Вкажи у міжнародному форматі (наприклад, +380...)")
+    await message.answer("І який <b>номер телефону в одного з твоїх батьків/опікунів?</b> Вкажи у міжнародному форматі (наприклад, +380...)")
 
 @reg_router.message(Registration.entering_parent_phone, F.text)
 async def process_parent_phone(message: Message, state: FSMContext):
@@ -308,7 +298,7 @@ async def process_parent_phone(message: Message, state: FSMContext):
     await state.update_data(parent_phone=phone)
     await state.set_state(Registration.entering_lead_source)
     await message.answer("Дякую! 😊 Залишилось всього 2 запитання, і цей розділ завершено!")
-    await message.answer("Звідки ти дізнався(-лась) про Svitlo School? Обери або напиши свій варіант:", 
+    await message.answer("<b>Звідки ти дізнався(-лась) про Svitlo School?</b> Обери або напиши свій варіант:", 
                          reply_markup=kb.get_lead_source_kb())
 
 # ДЖЕРЕЛО ТРАФІКУ
@@ -357,77 +347,78 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
         
     doc_id = student['id']
     await db.save_lead_profile(doc_id, data, "rules_matching")
-
     await state.set_state(Registration.passing_rules)
-    await state.update_data(quiz_step=0)
 
     await message.answer(
-        "✅ <b>Всі персональні дані успішно збережено!</b>\n\n"
-        "Наступний крок — коротке знайомство з правилами та культурою нашої спільноти.\n"
-        "📖 <a href='https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21'>Читати повні правила (Telegraph)</a>", 
-        parse_mode="HTML", 
-        reply_markup=kb.get_rules_start_kb(),
-        disable_web_page_preview=True
+        LEAD_INTERLUDE_1_MSG,
+        reply_markup=kb.get_rules_start_kb()
     )
-    # TODO: Додати логіку надсилання квізу (Модуль 2 - Крок 3)
-
 
 # endregion =====================================================
-# region RULES & QUIZ
+# region RULES, QUIZ & ID
 # ===============================================================
 
-@reg_router.callback_query(Registration.passing_rules)
+@reg_router.callback_query(Registration.passing_rules, F.data == "rules_start")
+async def process_rules(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(quiz_step=0)
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+            RULES_MSG,
+            reply_markup=kb.get_quiz_start_kb(),
+            disable_web_page_preview=True
+        )
+    
+@reg_router.callback_query(Registration.passing_rules, (F.data.startswith("ans_")) | (F.data == "quiz_start"))
 async def process_quiz(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     step = data.get("quiz_step", 0)
     
     if callback.data.startswith("ans_"):
         ans_idx = int(callback.data.split("_")[1])
+        
+        # 1. Логіка при неправильній відповіді
         if ans_idx != QUIZ_DATA[step - 1]["correct"]:
             await callback.answer(
-                "❌ Неправильно! Зверни увагу на правила щодо камер, відвідуваності та мови. Спробуй ще раз", 
+                "❌ Неправильно! Повертаємось до правил. Уважно перечитай їх та спробуй пройти квіз ще раз", 
                 show_alert=True
+            )
+            # Скидаємо прогрес
+            await state.update_data(quiz_step=0)
+            # Повертаємо повідомлення з правилами та кнопкою "Take the quiz"
+            await callback.message.edit_text(
+                RULES_MSG,
+                reply_markup=kb.get_quiz_start_kb(),
+                disable_web_page_preview=True
             )
             return 
             
+    # 2. Логіка при правильній відповіді або натисканні "quiz_start"
     if step < len(QUIZ_DATA):
         question = QUIZ_DATA[step]
-        text_to_send = f"📝 <b>Check Your Rules</b>\n\n{question['q']}"
-        
-        if callback.data == "quiz_start":
-            await callback.message.edit_text(text_to_send, reply_markup=kb.get_quiz_kb(question["options"]))
-        else:
-            await callback.message.edit_text(text_to_send, reply_markup=kb.get_quiz_kb(question["options"]))
-            
+        text_to_send = f"<b>📚 Check Your Rules Knowledge 📚</b>\n\n{question['q']}"
+
+        await callback.answer()
+        await callback.message.edit_text(
+            text_to_send,
+            reply_markup=kb.get_quiz_kb(question["options"])
+        )
         await state.update_data(quiz_step=step + 1)
         
+    # 3. Логіка успішного завершення
     else:
+        await callback.answer()
         await callback.message.delete()
-        await callback.message.answer(
-            "🎉 <b>Супер! Ти в темі.</b>\n\n"
-            "Останній крок — <b>ID Check</b>. Натисни кнопку нижче, "
-            "щоб відсканувати документ. Дані не зберігаються на наших серверах.",
-            reply_markup=kb.get_scanner_webapp_kb(),
-            parse_mode="HTML"
-        )
+
+        data = await state.get_data()
+        first_name = data.get('first_name', '')
+
+        await callback.message.answer(LEAD_INTERLUDE_2_MSG.replace("[Name]", f"{first_name}"))
+        await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
         await state.set_state(Registration.uploading_docs)
 
-# endregion =====================================================
-# region INTERLUDE #2
-# ===============================================================
-
-@reg_router.message(Registration.uploading_docs)
-async def fallback_waiting_scan(message: Message):
-    """
-    Перехоплювач: спрацьовує, якщо замість WebApp юзер відправляє повідомлення або фото.
-    Захищає Zero-Storage логіку.
-    """
-    await message.answer(
-        "⚠️ Будь ласка, скористайся кнопкою <b>«📸 Level Check»</b> для безпечного сканування документа.\n\n"
-        "Ми піклуємося про твої дані (Zero-Storage), тому не приймаємо фотографії безпосередньо в чат.",
-        reply_markup=kb.get_scanner_webapp_kb(),
-        parse_mode="HTML"
-    )
+# Далі дія переходить у api/webapp_routes.py, де, в разі успіху, 
+# лід переводиться на етап Registration.admin_review, а адміністратор отримує його профіль на розгляд
 
 # endregion =====================================================
 # region ADMIN REVIEW
@@ -490,6 +481,7 @@ async def admin_show_lead_details(callback: CallbackQuery):
 @reg_router.callback_query(F.data.startswith("lead_confirmblock_"))
 async def admin_confirm_block_lead(callback: CallbackQuery):
     doc_id = callback.data.split("_")[2]
+    await callback.answer()
     await callback.message.edit_reply_markup(
         reply_markup=kb.get_admin_confirm_block_kb(doc_id)
     )
@@ -583,7 +575,100 @@ async def admin_approve_lead(callback: CallbackQuery):
         reply_markup=kb.get_start_menu() # Кнопка "Отримати доступ"
     )
 
+# endregion =====================================================
+# region FALLBACKs
+# ===============================================================
 
+@reg_router.message(Registration.uploading_docs)
+async def fallback_waiting_scan(message: Message):
+    """
+    Перехоплювач: спрацьовує, якщо замість WebApp юзер відправляє повідомлення або фото.
+    Захищає Zero-Storage логіку.
+    """
+    await message.answer(
+        "🔒 Будь ласка, скористайся кнопкою <b>«Сканувати документ»</b> для безпечної та захищеної верифікації.\n\n"
+        "⚠️ Ми піклуємось про твою безпеку, тому наполегливо <b>не рекомендуємо надсилати фотографії документів в чат</b> та не приймаємо їх в такому форматі",
+        reply_markup=kb.get_scanner_webapp_kb()
+    )
+
+
+# --- 1. Інтерцептор команд під час реєстрації ---
+@reg_router.message(StateFilter(Registration), Command("start", "menu", "profile", "house"))
+async def cmd_during_registration(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    
+    # Якщо це підтвердження адміна — не перебиваємо
+    if current_state == Registration.admin_review.state:
+        await message.answer("Твоя заявка вже на перевірці у кураторів! Очікуй на рішення")
+        return
+
+    await message.answer(
+        "<b>⚠️ Ти перебуваєш в процесі реєстрації до Svitlo School!</b>\n\n"
+        "Якщо ти вийдеш зараз, <b>заповнені дані не збережуться</b>, а доступ до функцій бота буде обмежено до завершення воронки",
+        parse_mode="HTML",
+        reply_markup=kb.get_registration_cancel_confirm()
+    )
+
+@reg_router.callback_query(F.data == "reg_resume")
+async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.delete()
+    await callback.message.answer("Чудово, продовжуємо! Введи відповідь на останнє вищепоставлене запитання")
+
+@reg_router.callback_query(F.data == "reg_restart")
+async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    # 1. Відкат стану в базі даних
+    student = student_ctx.get()
+    if student:
+        # Повертаємо ліда на початковий етап, щоб /start відпрацював коректно
+        await db.update_crm_stage(student['id'], "lead")
+    else:
+        # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
+        user_id = str(callback.from_user.id)
+        await db.db.collection('Svitlo').document(user_id).update({
+            "crm_stage": "lead"
+        })
+
+    await state.clear()
+    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову")
+
+
+# --- 2. Ловитель невідповідного контенту/типу даних ---
+@reg_router.message(StateFilter(Registration))
+async def process_invalid_registration_input(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+
+    # Окремий випливаючий підказчик залежно від стану
+    if current_state == Registration.entering_phone.state:
+        await message.answer(
+            "Будь ласка, скористайся кнопкою <b>«Поділитись номером»</b> внизу екрана ↘️",
+            reply_markup=kb.get_number_for_registration_kb()
+        )
+    elif current_state in [Registration.entering_displaced_bool.state, Registration.entering_health_bool.state]:
+        await message.answer(
+            "⚠️ Будь ласка, обери «Так» або «Ні»:",
+            reply_markup=kb.get_boolean_kb()
+        )
+    elif current_state == Registration.uploading_docs.state:
+        await message.answer(
+            "Для верифікації документа скористайся кнопкою відкриття сканера нижче",
+            reply_markup=kb.get_scanner_webapp_kb()
+        )
+    else:
+        await message.answer(
+            "Очікується текстова відповідь. Будь ласка, введи потрібні дані текстом або скористайся кнопками меню"
+        )
+
+
+# --- 3. Інтерцептор застарілих колбеків ---
+@reg_router.callback_query(StateFilter(Registration))
+async def process_stale_callbacks(callback: CallbackQuery, state: FSMContext):
+    await callback.answer(
+        "Ця кнопка застаріла або неактивна на даному етапі реєстрації. Продовжуй ввід у чаті або скористайся /help",
+        show_alert=True
+    )
 
 # endregion =====================================================
 # region 
