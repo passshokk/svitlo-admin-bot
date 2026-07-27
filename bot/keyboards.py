@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types.web_app_info import WebAppInfo
 import os
+
 from core.context import user_roles_ctx
 
 # ==========================
@@ -76,7 +77,7 @@ def get_edit_fields_kb() -> InlineKeyboardMarkup:
     builder.button(text="📍 Місто", callback_data="edit_field:city")
     builder.button(text="🔙 Назад", callback_data="edit_field:cancel")
     builder.adjust(2, 2, 2, 1)
-    return builder.as_markup()
+    return builder.as_markup()  
 
 # --- rules & quiz ---
 

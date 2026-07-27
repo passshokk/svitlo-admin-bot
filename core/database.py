@@ -2,8 +2,10 @@
 import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from google.api_core.exceptions import AlreadyExists
 
 def get_kyivtime_now():
     kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
@@ -15,7 +17,7 @@ if not firebase_admin._apps:
 db = firestore.AsyncClient()
 
 # ==========================
-# region --- Main Svitlo DB
+# region --- Svitlo DB
 
 async def get_student_by_tg_id(tg_id: int) -> dict | None:
     """Пошук документа в колекції Svitlo. Виключно прямий запит у БД."""
@@ -49,6 +51,12 @@ async def grant_house_access(doc_id: str):
 # ==========================
 # region --- Registration Workflow
 
+def generate_svitlo_id() -> str:
+    """Генерує композитний ID (формат: SV-YYMMDD-XXXXXXXX)"""
+    date_prefix = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%y%m%d")
+    random_suffix = uuid.uuid4().hex[:8]
+    return f"SV-{date_prefix}-{random_suffix}"
+
 async def init_lead(tg_id: int, username: str | None) -> str:
     """Створює новий документ ліда в Firebase.
 
@@ -65,7 +73,6 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     if existing:
         return existing['id']
         
-    doc_ref = db.collection('Svitlo').document() # Автогенерація ID
     now = get_kyivtime_now()
     
     payload = {
@@ -114,9 +121,19 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "house": "Newbie",
         "roles": []
     }
-    await doc_ref.set(payload)
-    
-    return doc_ref.id
+
+    # Безкінечний цикл генерації ID для гарантії унікальності
+    while True:
+        custom_doc_id = generate_svitlo_id()
+        doc_ref = db.collection('Svitlo').document(custom_doc_id)
+        
+        try:
+            # .create() атомарно створить документ АБО викине помилку AlreadyExists
+            await doc_ref.create(payload)
+            return custom_doc_id
+        except AlreadyExists:
+            # У разі колізії цикл одразу генерує новий ID та повторює спробу
+            continue
 
 async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
     """
