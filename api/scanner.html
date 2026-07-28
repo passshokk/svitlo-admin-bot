@@ -6,11 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no">
     <title>Svitlo Document Scanner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --accent-color: #2481cc;
-            --success-color: #31b545;
-            --warning-color: #e5b016;
+            /* Брендбук Svitlo School */
+            --brand-dark:   #1A393F;
+            --brand-gold:   #DCAF42;
+            --brand-sage:   #97BBA7;
+            --brand-red:    #912627;
+
+            --accent-color: var(--brand-gold);
+            --success-color: var(--brand-sage);
+            --warning-color: var(--brand-red);
             --bg-color: #000000;
 
             --safe-top: env(safe-area-inset-top, 0px);
@@ -35,7 +44,7 @@
         body {
             background-color: var(--bg-color);
             color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
         #scanner-container {
@@ -94,7 +103,7 @@
         }
 
         .segment-btn.active {
-            background: rgba(255, 255, 255, 0.16);
+            background: rgba(220, 175, 66, 0.28);
             color: #fff;
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
         }
@@ -165,11 +174,12 @@
         /* Стани аналізатора — колір лише на кутиках, без суцільних рамок */
         .viewfinder.status-moving .corner {
             border-color: var(--warning-color);
+            filter: drop-shadow(0 0 5px rgba(145, 38, 39, 0.6));
         }
 
         .viewfinder.status-focusing .corner {
             border-color: var(--accent-color);
-            filter: drop-shadow(0 0 5px rgba(36, 129, 204, 0.55));
+            filter: drop-shadow(0 0 5px rgba(220, 175, 66, 0.6));
         }
 
         /* Прогрес автозахоплення — тонка дуга під рамкою */
@@ -295,6 +305,12 @@
         }
 
         body.state-preview #retake-btn { display: block; }
+
+        /* У прев'ю фото над кнопками лишалось багато порожнього простору —
+           підказку тримаємо ближче до дій, а не посередині екрана. */
+        body.state-preview .hint-text {
+            bottom: calc(var(--safe-bottom) + 64px);
+        }
 
         body.state-preview .hint-text::before {
             content: "";
@@ -464,13 +480,26 @@
 
             video.srcObject = mediaStream;
             initTorch();
+            initZoom();
 
             video.onloadedmetadata = () => {
                 video.play().catch(() => {});
                 setHint(HINTS[activeType()]);
+                positionHint();
                 startAnalyzer();
                 startFallbackTimer();
             };
+        }
+
+        function initZoom() {
+            // На частині телефонів "environment" камера стартує з дефолтним
+            // цифровим/оптичним зумом > 1x (виглядає так, ніби об'єктив
+            // "наближає"). Скидаємо на мінімальний zoom, якщо драйвер це дозволяє.
+            const track = mediaStream.getVideoTracks()[0];
+            if (!track || typeof track.getCapabilities !== 'function') return;
+            const caps = track.getCapabilities();
+            if (!caps || !caps.zoom) return;
+            track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] }).catch(() => {});
         }
 
         function initTorch() {
@@ -671,6 +700,27 @@
             if (analyzerWorker) analyzerWorker.postMessage({ command: 'reset' });
         }
 
+        // ============ Позиція підказки відносно рамки ============
+        // Для високих типів (Свідоцтво) фіксована відстань від низу екрана
+        // призводила до накладання тексту на саму рамку/фокус-бар.
+        // Рахуємо позицію від фактичного нижнього краю viewfinder.
+        function positionHint() {
+            if (document.body.classList.contains('state-preview')) {
+                hintText.style.top = '';
+                hintText.style.bottom = '';
+                return;
+            }
+            const rect = viewfinder.getBoundingClientRect();
+            if (!rect.height) return;
+
+            const maxTop = window.innerHeight - 170; // лишаємо місце під кнопку спуску
+            hintText.style.bottom = '';
+            hintText.style.top = Math.min(Math.round(rect.bottom + 22), maxTop) + 'px';
+        }
+
+        viewfinder.addEventListener('transitionend', positionHint);
+        window.addEventListener('resize', positionHint);
+
         // ============ Перемикач типу документа ============
         segmentBtns.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -681,6 +731,7 @@
                 const type = btn.getAttribute('data-type');
                 viewfinder.className = `viewfinder ${type}`;
                 setHint(HINTS[type]);
+                positionHint();
 
                 resetAnalyzerState();
                 startFallbackTimer();
@@ -738,8 +789,10 @@
             document.body.classList.remove('state-manual');
             document.body.classList.add('state-preview');
             setHint("Перевір, чи чітко читається текст");
+            positionHint();
 
-            tg.MainButton.setText("ПЕРЕВІРИТИ ДОКУМЕНТ");
+            tg.MainButton.setText("✅ ПЕРЕВІРИТИ ДОКУМЕНТ");
+            tg.MainButton.setParams({ color: '#97BBA7', text_color: '#1A393F' });
             tg.MainButton.enable();
             tg.MainButton.show();
             tg.BackButton.show();
@@ -756,6 +809,7 @@
             document.body.classList.remove('state-preview', 'state-manual');
             viewfinder.className = `viewfinder ${activeType()}`;
             setHint(HINTS[activeType()]);
+            positionHint();
 
             tg.MainButton.hideProgress();
             tg.MainButton.hide();
