@@ -2,13 +2,15 @@
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 from core import database as db
-from bot import keyboards as kb
 from core.context import student_ctx, user_roles_ctx
 from bot.states import Registration
 from aiogram.fsm.context import FSMContext
 
 class LoadDataMiddleware(BaseMiddleware):
-    """Глобальний мідлвейр: пошук користувача в БД за полем telegramId."""
+    """
+    Глобальний мідлвейр: пошук користувача в БД за полем telegramId.
+    Якщо crm_stage = 'blocked' -> блокування.
+    """
     async def __call__(self, handler, event: TelegramObject, data: dict):
         user = None
         if event.message:
@@ -19,6 +21,11 @@ class LoadDataMiddleware(BaseMiddleware):
         if user:
             student = await db.get_student_by_tg_id(user.id)
             
+            # ⛔️ БЛОК: якщо crm_stage == 'blocked'
+            if student and student['data'].get('crm_stage') == 'blocked':
+                # Повертаємо None без виклику handler(), повністю ігноруючи подальші дії
+                return
+
             s_token = student_ctx.set(student)
             roles = student['data'].get('roles', []) if student else []
             r_token = user_roles_ctx.set(roles)

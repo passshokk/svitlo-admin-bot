@@ -10,6 +10,7 @@ import logging
 from core import database as db
 from core.database import db as firestore_client
 from bot import keyboards as kb
+from core import utils as ut
 from bot.states import Registration
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
@@ -204,6 +205,13 @@ async def process_phone_contact(message: Message, state: FSMContext):
     phone = message.contact.phone_number
     phone = '+' + phone if not phone.startswith('+') else phone
 
+    student = student_ctx.get()
+    if ut.is_russian_phone_number(phone):
+        await db.update_crm_stage(student['id'], "blocked")
+        await db.clear_user_fsm(message.from_user.id)
+        await message.answer("⚠️ Доступ до реєстрації в Svitlo School обмежено")
+        return
+    
     await state.update_data(phone=phone)
     await state.set_state(Registration.entering_country)
     
@@ -222,7 +230,15 @@ async def process_phone_text_blocked(message: Message):
 # КРАЇНА -> МІСТО
 @reg_router.message(Registration.entering_country, F.text)
 async def process_country(message: Message, state: FSMContext):
-    await state.update_data(country=message.text.strip().title())
+    country = message.text.strip().title()
+    student = student_ctx.get()
+    if ut.is_russian_country_input(country):
+        await db.update_crm_stage(student['id'], "blocked")
+        await db.clear_user_fsm(message.from_user.id)
+        await message.answer("⚠️ Доступ до реєстрації в Svitlo School обмежено")
+        return
+
+    await state.update_data(country=country)
     await state.set_state(Registration.entering_city)
     await message.answer("Вкажи назву <b>міста чи села</b>, де ти зараз мешкаєш:")
 
@@ -470,7 +486,7 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
     await db.save_lead_profile(doc_id, data, "rules_matching")
     await state.set_state(Registration.passing_rules)
 
-    await message.answer(
+    await message.edit_text(
         LEAD_INTERLUDE_1_MSG,
         reply_markup=kb.get_rules_start_kb()
     )
@@ -483,11 +499,11 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 async def process_rules(callback: CallbackQuery, state: FSMContext):
     await state.update_data(quiz_step=0)
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(
+    await callback.message.edit_text(
             RULES_MSG,
             reply_markup=kb.get_quiz_start_kb(),
-            disable_web_page_preview=True
+            disable_web_page_preview=True,
+            reply_markup=None
         )
     
 @reg_router.callback_query(Registration.passing_rules, (F.data.startswith("ans_")) | (F.data == "quiz_start"))
@@ -534,9 +550,13 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         first_name = data.get('first_name', '')
 
-        await callback.message.answer(LEAD_INTERLUDE_2_MSG.format(name=first_name))
+        await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
         await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
         await state.set_state(Registration.uploading_docs)
+
+@reg_router.message(Command("testcam"))
+async def cmd_test_idcheck(message: Message, state: FSMContext):
+    await message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
 
 # Далі дія переходить у api/webapp_routes.py, де, в разі успіху, 
 # лід переводиться на етап Registration.admin_review, а адміністратор отримує його профіль на розгляд
@@ -620,29 +640,19 @@ async def admin_block_lead(callback: CallbackQuery):
     user_id = data.get('telegramId')
 
     # 2. Переводимо stage в blocked у Flat Schema
-    await doc_ref.update({
-        "crm_stage": "blocked",
-        "crm_stage_updated_at": db.get_kyivtime_now()
-    })
+    await db.update_crm_stage(doc_id, "blocked")
+    await db.clear_user_fsm(user_id)
 
-    # 3. Гарантовано очищаємо FSM_Sessions, щоб не залишати сміття
-    if user_id:
-        try:
-            await db.clear_user_fsm(user_id)
-        except Exception as e:
-            logging.warning(f"Не вдалося видалити FSM_Session для заблокованого юзера {user_id}: {e}")
-
-    # 4. Оновлюємо інтерфейс куратора
+    # 3. Оновлюємо інтерфейс куратора
     reviewer_name = callback.from_user.full_name
     await callback.message.edit_text(
-        f"⛔️ <b>ЗАЯКУ ВІДХИЛЕНО</b>\n"
+        f"<b>⛔️ ЗАЯКУ ВІДХИЛЕНО</b>\n"
         f"Куратор: {reviewer_name}\n\n"
         f"{callback.message.html_text}",
-        parse_mode="HTML",
         reply_markup=None
     )
 
-    # 5. Сповіщаємо спамера (опціонально)
+    # 4. Сповіщаємо спамера (опціонально)
     if user_id:
         try:
             await callback.bot.send_message(
@@ -752,10 +762,9 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
         await db.update_crm_stage(student['id'], "lead")
     else:
         # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
-        user_id = str(callback.from_user.id)
-        await firestore_client.collection('Svitlo').document(user_id).update({
-            "crm_stage": "lead"
-        })
+        user_id = callback.from_user.id
+        student = db.get_student_by_tg_id(user_id)
+        await db.update_crm_stage(student['id'], "lead")
 
     await state.clear()
     await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову")

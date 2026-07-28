@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 from zoneinfo import ZoneInfo
 import httpx
+import re
 
 from core import config as cfg
 
@@ -52,6 +53,39 @@ def get_profile_text(data: dict) -> str:
         f"<b>Account verified</b> in @svitlo_admin_bot"
     )
 
+BLOCKED_COUNTRY_PATTERNS = {
+    "росія", "росия", "россия", "росiя", "россiя", "рф", "раша", "мордор",
+    "російськафедерація", "российскаяфедерация", "russianfederation",
+    "russia", "rus", "ru", "rusia", "rossiya", "ruzzia", "rusnya", "русня"
+}
+
+def is_russian_country_input(text: str) -> bool:
+    if not text:
+        return False
+        
+    # 1. Приведення до нижнього регістру та видалення пробілів/спецсимволів
+    clean_text = re.sub(r'[^a-zA-Zа-яА-ЯіІїЇєЄґҐ]', '', text.lower())
+    
+    # 2. Мапінг схожих латинських літер на кирилицю (захист від p-о-c-c-и-я)
+    homoglyphs = str.maketrans({'p': 'р', 'o': 'о', 'c': 'с', 'a': 'а', 'e': 'е', 'x': 'х', 'y': 'у'})
+    normalized_text = clean_text.translate(homoglyphs)
+
+    # 3. Перевірка на прямий збіг або підрядок
+    for pattern in BLOCKED_COUNTRY_PATTERNS:
+        if pattern in clean_text or pattern in normalized_text:
+            return True
+            
+    return False
+
+def is_russian_phone_number(phone: str) -> bool:
+    clean_phone = re.sub(r'[^\d+]', '', phone)
+    # Блокуємо всі російські мобільні (+79) та міські (+73, +74, +78) діапазони
+    if clean_phone.startswith(('+79', '+73', '+74', '+78', '89')):
+        return True
+    return False
+
+# ====================================================================================
+# Notion
 # ====================================================================================
 
 # токен з налаштувань інтеграції Notion - https://app.notion.com/developers/connections

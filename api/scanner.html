@@ -6,98 +6,416 @@
     <title>Svitlo Document Scanner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+        :root {
+            --accent-color: #2481cc;
+            --success-color: #31b545;
+            --warning-color: #e5b016;
+            --bg-color: #0d0f12;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
         body {
             margin: 0;
             padding: 0;
-            background-color: var(--tg-theme-bg-color, #000);
-            color: var(--tg-theme-text-color, #fff);
+            background-color: var(--bg-color);
+            color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
             overflow: hidden;
         }
-        #video-container {
+
+        #scanner-container {
+            position: relative;
             width: 100%;
-            height: 80vh;
-            background: #111;
+            height: 100vh;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
+            background: #000;
         }
+
         video {
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
-        #controls {
-            height: 20vh;
+
+        /* Сегментований перемикач типу документа */
+        .segment-control {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            border-radius: 12px;
+            padding: 4px;
+            z-index: 30;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .segment-btn {
+            flex: 1;
+            background: transparent;
+            color: #fff;
+            border: none;
+            padding: 10px 0;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        .segment-btn.active {
+            background: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        /* Напівпрозоре затемнення */
+        .overlay-mask {
+            position: absolute;
+            inset: 0;
+            background: rgba(13, 15, 18, 0.7);
+            display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            width: 100%;
+            z-index: 10;
         }
-        button {
-            background-color: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #fff);
-            border: none;
-            border-radius: 12px;
-            padding: 16px 32px;
-            font-size: 18px;
+
+        /* Адаптивна рамка для документа */
+        .viewfinder {
+            position: relative;
+            border-radius: 16px;
+            /* Box-shadow створює "дірку" у затемненні */
+            box-shadow: 0 0 0 9999px rgba(13, 15, 18, 0.7);
+            transition: aspect-ratio 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), 
+                        width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+                        height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        /* Пропорції документів */
+        .viewfinder.type-id { width: 85vw; max-width: 420px; aspect-ratio: 1.58 / 1; }
+        .viewfinder.type-passport { width: 85vw; max-width: 420px; aspect-ratio: 1.42 / 1; }
+        .viewfinder.type-cert { width: 75vw; max-width: 380px; aspect-ratio: 1 / 1.41; }
+
+        .corner {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: 3.5px solid var(--accent-color);
+            transition: border-color 0.3s ease;
+        }
+
+        .top-left { top: -2px; left: -2px; border-right: none; border-bottom: none; border-radius: 12px 0 0 0; }
+        .top-right { top: -2px; right: -2px; border-left: none; border-bottom: none; border-radius: 0 12px 0 0; }
+        .bottom-left { bottom: -2px; left: -2px; border-right: none; border-top: none; border-radius: 0 0 0 12px; }
+        .bottom-right { bottom: -2px; right: -2px; border-left: none; border-top: none; border-radius: 0 0 12px 0; }
+
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 5%;
+            width: 90%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+            box-shadow: 0 0 12px var(--accent-color);
+            animation: scan 2s infinite ease-in-out;
+            border-radius: 50%;
+        }
+
+        @keyframes scan {
+            0% { top: 5%; opacity: 0.2; }
+            50% { top: 90%; opacity: 1; }
+            100% { top: 5%; opacity: 0.2; }
+        }
+
+        .hint-text {
+            position: absolute;
+            bottom: 15%;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            font-size: 15px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.95);
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            padding: 10px 24px;
+            border-radius: 20px;
+            white-space: nowrap;
+            z-index: 20;
+            transition: color 0.3s;
+        }
+
+        /* Запасна кнопка (Fallback) */
+        #manual-snap-btn, #retake-btn {
+            display: none;
+            position: absolute;
+            bottom: 6%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 14px 28px;
+            border-radius: 24px;
+            font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 20;
+            transition: background 0.2s;
         }
-        button:disabled {
-            opacity: 0.5;
-        }
+
+        #manual-snap-btn:active, #retake-btn:active { background: rgba(255, 255, 255, 0.25); }
+
+        /* Стани аналізатора */
+        .status-moving .corner { border-color: var(--warning-color); }
+        .status-moving ~ .hint-text { color: var(--warning-color); }
+        
+        .status-captured .corner { border-color: var(--success-color); }
+        .status-captured .scan-line { display: none; }
+
         canvas { display: none; }
     </style>
 </head>
 <body>
-    <div id="video-container">
-        <!-- playsinline необхідний для роботи в iOS Telegram -->
+
+    <div id="scanner-container">
+        <!-- Сегментований UI -->
+        <div class="segment-control">
+            <button class="segment-btn active" data-type="type-id">🪪 ID-картка</button>
+            <button class="segment-btn" data-type="type-passport">📘 Закордонний</button>
+            <button class="segment-btn" data-type="type-cert">📄 Свідоцтво</button>
+        </div>
+
         <video id="camera" autoplay playsinline muted></video>
+
+        <!-- Адаптивна рамка -->
+        <div class="overlay-mask">
+            <div class="viewfinder type-id" id="viewfinder">
+                <div class="corner top-left"></div>
+                <div class="corner top-right"></div>
+                <div class="corner bottom-left"></div>
+                <div class="corner bottom-right"></div>
+                <div class="scan-line"></div>
+            </div>
+        </div>
+
+        <div class="hint-text" id="hint-text">Наведи на документ</div>
+        <button id="manual-snap-btn">Сфотографувати</button>
+        <button id="retake-btn">🔄 Перезняти</button>
     </div>
-    <div id="controls">
-        <button id="snap-btn">Сфотографувати</button>
-    </div>
-    <canvas id="canvas"></canvas>
+
+    <!-- Hidden Canvases -->
+    <canvas id="processing-canvas" width="100" height="100"></canvas>
+    <canvas id="snapshot-canvas"></canvas>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand(); // Розгортаємо на весь екран
+        tg.expand();
 
+        // UI Елементи
         const video = document.getElementById('camera');
-        const canvas = document.getElementById('canvas');
-        const snapBtn = document.getElementById('snap-btn');
+        const viewfinder = document.getElementById('viewfinder');
+        const hintText = document.getElementById('hint-text');
+        const manualSnapBtn = document.getElementById('manual-snap-btn');
+        const retakeBtn = document.getElementById('retake-btn');
+        const segmentBtns = document.querySelectorAll('.segment-btn');
+        
+        // Canvas Елементи
+        const procCanvas = document.getElementById('processing-canvas');
+        const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+        const snapCanvas = document.getElementById('snapshot-canvas');
 
-        // Ініціалізація камери (запитуємо задню камеру)
+        // Стейт-машина
+        let isCaptured = false;
+        let base64Image = null;
+        let processInterval = null;
+        let manualFallbackTimer = null;
+        
+        // Параметри "Розумного" аналізу
+        let prevGray = null;
+        let focusFrames = 0;
+        const MOTION_THRESH = 12; // Чим вище, тим більше руху дозволено
+        const SHARPNESS_THRESH = 15; // Мінімальна кількість тексту/контрасту в кадрі
+        const FRAMES_TO_FREEZE = 8; // 8 кадрів (0.8 сек) стабільності для автокліку
+
+        const HINTS = {
+            'type-id': "Наведи на ID-картку",
+            'type-passport': "Наведи на головну сторінку паспорту",
+            'type-cert': "Наведи на свідоцтво про народження цілком"
+        };
+
+        // --- Ініціалізація Камери ---
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment" },
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
                     audio: false
                 });
                 video.srcObject = stream;
+                
+                // Запуск аналізатора після завантаження відео
+                video.onloadedmetadata = () => {
+                    startAnalyzer();
+                    startFallbackTimer();
+                };
             } catch (err) {
                 tg.showAlert("Не вдалося отримати доступ до камери. Будь ласка, перезапусти сканер");
             }
         }
 
-        snapBtn.addEventListener('click', async () => {
-            snapBtn.disabled = true;
-            snapBtn.innerText = "⏳ Аналізуємо...";
+        // --- Сегментований перемикач ---
+        segmentBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                if(isCaptured) return;
+                segmentBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                const type = btn.getAttribute('data-type');
+                viewfinder.className = `viewfinder ${type}`;
+                hintText.innerText = HINTS[type];
+            });
+        });
 
-            // Малюємо кадр на canvas
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+        // --- Легковаговий аналізатор (Motion + Edge Density) ---
+        function startAnalyzer() {
+            if (processInterval) clearInterval(processInterval);
+            focusFrames = 0;
+            
+            processInterval = setInterval(() => {
+                if (isCaptured || video.readyState !== 4) return;
 
-            // Компресія 60% (достатньо для ШІ, важить ~150-200kb)
-            const base64Image = canvas.toDataURL('image/jpeg', 0.6);
+                // 1. Малюємо поточний кадр у мікро-canvas (100x100)
+                procCtx.drawImage(video, 0, 0, 100, 100);
+                const imgData = procCtx.getImageData(0, 0, 100, 100).data;
+                
+                let currentGray = new Uint8Array(10000);
+                let motion = 0;
+                let edges = 0;
+
+                // 2. Обрахунок
+                for (let i = 0; i < 10000; i++) {
+                    // Конвертація в Ч/Б
+                    currentGray[i] = (imgData[i*4]*0.299 + imgData[i*4+1]*0.587 + imgData[i*4+2]*0.114);
+                    
+                    // Дельта руху (порівняння з попереднім кадром)
+                    if (prevGray) {
+                        motion += Math.abs(currentGray[i] - prevGray[i]);
+                    }
+                    // Щільність контурів (різниця сусідніх пікселів по X)
+                    if (i % 100 !== 99) {
+                        edges += Math.abs(currentGray[i] - currentGray[i+1]);
+                    }
+                }
+                
+                motion /= 10000;
+                edges /= 10000;
+                prevGray = currentGray;
+
+                // 3. Логіка прийняття рішень
+                if (motion > MOTION_THRESH) {
+                    viewfinder.classList.add('status-moving');
+                    viewfinder.classList.remove('status-focusing');
+                    hintText.innerText = "Тримай телефон нерухомо";
+                    focusFrames = 0;
+                } else {
+                    viewfinder.classList.remove('status-moving');
+                    if (edges > SHARPNESS_THRESH) {
+                        const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
+                        hintText.innerText = "Фокусуємось...";
+                        focusFrames++;
+                        
+                        if (focusFrames >= FRAMES_TO_FREEZE) {
+                            captureFrame();
+                        }
+                    } else {
+                        const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
+                        hintText.innerText = HINTS[activeType];
+                        focusFrames = 0;
+                    }
+                }
+            }, 100); // 10 FPS
+        }
+
+        // --- Запасний таймер (Fallback) ---
+        function startFallbackTimer() {
+            clearTimeout(manualFallbackTimer);
+            manualFallbackTimer = setTimeout(() => {
+                if (!isCaptured) {
+                    manualSnapBtn.style.display = 'block';
+                    hintText.innerText = "Не вдається сфокусуватись. Натисни кнопку";
+                }
+            }, 5000);
+        }
+
+        // --- Фіксація кадру ---
+        function captureFrame() {
+            if (isCaptured) return;
+            isCaptured = true;
+            clearInterval(processInterval);
+            clearTimeout(manualFallbackTimer);
+            video.pause();
+
+            // Малюємо hi-res фото для відправки
+            snapCanvas.width = video.videoWidth || 1280;
+            snapCanvas.height = video.videoHeight || 720;
+            const ctx = snapCanvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+            
+            // Компресія 70%
+            base64Image = snapCanvas.toDataURL('image/jpeg', 0.7);
+
+            // UI Оновлення
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            
+            viewfinder.className = 'viewfinder status-captured';
+            hintText.innerText = "Перевір якість перед відправкою";
+            manualSnapBtn.style.display = 'none';
+            retakeBtn.style.display = 'block';
+
+            tg.MainButton.setText("✅ НАДІСЛАТИ НА ПЕРЕВІРКУ");
+            tg.MainButton.show();
+        }
+
+        // --- Скидання сканера ---
+        function resetScanner() {
+            isCaptured = false;
+            base64Image = null;
+            video.play();
+            
+            const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
+            viewfinder.className = `viewfinder ${activeType}`;
+            hintText.innerText = HINTS[activeType];
+            
+            retakeBtn.style.display = 'none';
+            tg.MainButton.hide();
+
+            startAnalyzer();
+            startFallbackTimer();
+        }
+
+        manualSnapBtn.addEventListener('click', captureFrame);
+        retakeBtn.addEventListener('click', resetScanner);
+
+        // --- Відправка на сервер (MainButton) ---
+        tg.MainButton.onClick(async () => {
+            tg.MainButton.showProgress();
+            tg.MainButton.disable();
+
+            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
             try {
                 const response = await fetch('/api/vision', {
@@ -105,22 +423,24 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         image_base64: base64Image,
-                        init_data: tg.initData // Криптографічний підпис від Telegram
+                        init_data: tg.initData,
+                        timezone: userTimezone
                     })
                 });
 
                 const result = await response.json();
+                tg.MainButton.hideProgress();
+
                 if (result.success) {
                     tg.close(); // Успіх - закриваємо WebApp
                 } else {
                     tg.showAlert(result.error || "Помилка перевірки. Будь ласка, спробуй ще раз");
-                    snapBtn.disabled = false;
-                    snapBtn.innerText = "Сфотографувати";
+                    resetScanner();
                 }
             } catch (err) {
+                tg.MainButton.hideProgress();
                 tg.showAlert("Помилка з'єднання з сервером");
-                snapBtn.disabled = false;
-                snapBtn.innerText = "Сфотографувати";
+                resetScanner();
             }
         });
 

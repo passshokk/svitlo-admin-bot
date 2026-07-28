@@ -111,6 +111,9 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "health_issues_bool": False,
         "health_issues_details": "",
 
+        # 📚 School Rules
+        "rules_mistakes": 0,
+
         # 🤖 AI Verification
         "ai_doc_valid": False,
         "ai_doc_type": "",
@@ -173,8 +176,7 @@ async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
 
 async def update_crm_stage(doc_id: str, next_crm_stage: str):
     """
-    Оновлює timestamp останньої активності ліда.
-    Використовується для таймера Follow-up задач у Cloud Tasks.
+    Оновлює в `Svitlo` timestamp останньої активності юзера.
     """
     await db.collection('Svitlo').document(doc_id).update({
         "crm_stage_updated_at": get_kyivtime_now(),
