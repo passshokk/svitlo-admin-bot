@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 from google.api_core.exceptions import AlreadyExists
 
 def get_kyivtime_now():
-    kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
-    return kyiv_time.strftime("%Y-%m-%d %H:%M:%S")
+    """Повертає київський час зараз у форматі `Timestamp` (datetime)."""
+    return datetime.now(ZoneInfo("Europe/Kyiv"))
 
 if not firebase_admin._apps:
     firebase_admin.initialize_app(options={'projectId': 'svitlo-auth-bot'})
@@ -53,7 +53,7 @@ async def grant_house_access(doc_id: str):
 
 def generate_svitlo_id() -> str:
     """Генерує композитний ID (формат: SV-YYMMDD-XXXXXXXX)"""
-    date_prefix = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%y%m%d")
+    date_prefix = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d%m%y")
     random_suffix = uuid.uuid4().hex[:8]
     return f"SV-{date_prefix}-{random_suffix}"
 

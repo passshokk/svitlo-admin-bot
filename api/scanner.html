@@ -81,27 +81,40 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
 
-        /* Напівпрозоре затемнення */
+        /* Затемнення фону (без подвійного накладання) */
         .overlay-mask {
             position: absolute;
             inset: 0;
-            background: rgba(13, 15, 18, 0.7);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 10;
+            pointer-events: none;
         }
 
-        /* Адаптивна рамка для документа */
+        /* Адаптивна рамка фокусування для документа */
         .viewfinder {
             position: relative;
             border-radius: 16px;
-            /* Box-shadow створює "дірку" у затемненні */
-            box-shadow: 0 0 0 9999px rgba(13, 15, 18, 0.7);
-            transition: aspect-ratio 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), 
-                        width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
-                        height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: 0 0 0 9999px rgba(13, 15, 18, 0.85); 
+            border: 2px solid #2481cc; /* Синя обводка */
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        /* Стан успішного захоплення (Зафріжене фото) */
+        .status-captured {
+            border: 2px solid var(--success-color);
+            /* Додаємо зелене світіння (зовні і всередині), зберігаючи загальне затемнення */
+            box-shadow: 0 0 0 9999px rgba(13, 15, 18, 0.85), 
+                        0 0 30px rgba(49, 181, 69, 0.4), 
+                        0 0 30px rgba(49, 181, 69, 0.4) inset;
+        }
+        
+        /* Жорстко ховаємо ВСІ анімації та кути, залишаємо лише чистий документ у зеленій рамці */
+        .status-captured .corner, 
+        .status-captured .scan-line { 
+            display: none; 
         }
 
         /* Пропорції документів */
@@ -233,7 +246,7 @@
         const manualSnapBtn = document.getElementById('manual-snap-btn');
         const retakeBtn = document.getElementById('retake-btn');
         const segmentBtns = document.querySelectorAll('.segment-btn');
-        
+
         // Canvas Елементи
         const procCanvas = document.getElementById('processing-canvas');
         const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
@@ -244,13 +257,13 @@
         let base64Image = null;
         let processInterval = null;
         let manualFallbackTimer = null;
-        
-        // Параметри "Розумного" аналізу
+
+        // Параметри оптимізованого аналізу
         let prevGray = null;
         let focusFrames = 0;
         const MOTION_THRESH = 12; // Чим вище, тим більше руху дозволено
-        const SHARPNESS_THRESH = 15; // Мінімальна кількість тексту/контрасту в кадрі
-        const FRAMES_TO_FREEZE = 8; // 8 кадрів (0.8 сек) стабільності для автокліку
+        const SHARPNESS_THRESH = 20; // Мінімальна кількість тексту/контрасту в кадрі
+        const FRAMES_TO_FREEZE = 15; // 15 кадрів (1.5 сек) стабільності для автокліку
 
         const HINTS = {
             'type-id': "Наведи на ID-картку",
@@ -258,23 +271,25 @@
             'type-cert': "Наведи на свідоцтво про народження цілком"
         };
 
-        // --- Ініціалізація Камери ---
+        // --- Безпечна ініціалізація камери з фолбеками ---
         async function initCamera() {
+            const idealConstraints = { video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
+            const fallbackConstraints = { video: { facingMode: "environment" }, audio: false };
+
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-                    audio: false
-                });
-                video.srcObject = stream;
-                
-                // Запуск аналізатора після завантаження відео
-                video.onloadedmetadata = () => {
-                    startAnalyzer();
-                    startFallbackTimer();
-                };
+                video.srcObject = await navigator.mediaDevices.getUserMedia(idealConstraints);
             } catch (err) {
-                tg.showAlert("Не вдалося отримати доступ до камери. Будь ласка, перезапусти сканер");
+                try {
+                    video.srcObject = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                } catch (fallbackErr) {
+                    return tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
+                }
             }
+            
+            video.onloadedmetadata = () => {
+                startAnalyzer();
+                startFallbackTimer();
+            };
         }
 
         // --- Сегментований перемикач ---
@@ -290,7 +305,7 @@
             });
         });
 
-        // --- Легковаговий аналізатор (Motion + Edge Density) ---
+        // --- Оптимізований аналізатор (Центральний кроп + Uint32Array) ---
         function startAnalyzer() {
             if (processInterval) clearInterval(processInterval);
             focusFrames = 0;
@@ -298,24 +313,30 @@
             processInterval = setInterval(() => {
                 if (isCaptured || video.readyState !== 4) return;
 
-                // 1. Малюємо поточний кадр у мікро-canvas (100x100)
-                procCtx.drawImage(video, 0, 0, 100, 100);
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                
+                // Кропаємо лише центральний квадрат (зону документа), щоб не аналізувати фон
+                const minDim = Math.min(vw, vh);
+                const cropSize = minDim * 0.7; 
+                const sx = (vw - cropSize) / 2;
+                const sy = (vh - cropSize) / 2;
+
+                procCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, 100, 100);
                 const imgData = procCtx.getImageData(0, 0, 100, 100).data;
                 
                 let currentGray = new Uint8Array(10000);
                 let motion = 0;
                 let edges = 0;
 
-                // 2. Обрахунок
                 for (let i = 0; i < 10000; i++) {
-                    // Конвертація в Ч/Б
-                    currentGray[i] = (imgData[i*4]*0.299 + imgData[i*4+1]*0.587 + imgData[i*4+2]*0.114);
+                    // Швидка конвертація в Ч/Б (без множення float, зсув бітів)
+                    const offset = i * 4;
+                    currentGray[i] = (imgData[offset] * 3 + imgData[offset+1] * 4 + imgData[offset+2]) >>> 3;
                     
-                    // Дельта руху (порівняння з попереднім кадром)
                     if (prevGray) {
                         motion += Math.abs(currentGray[i] - prevGray[i]);
                     }
-                    // Щільність контурів (різниця сусідніх пікселів по X)
                     if (i % 100 !== 99) {
                         edges += Math.abs(currentGray[i] - currentGray[i+1]);
                     }
@@ -325,7 +346,6 @@
                 edges /= 10000;
                 prevGray = currentGray;
 
-                // 3. Логіка прийняття рішень
                 if (motion > MOTION_THRESH) {
                     viewfinder.classList.add('status-moving');
                     viewfinder.classList.remove('status-focusing');
@@ -337,17 +357,12 @@
                         const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
                         hintText.innerText = "Фокусуємось...";
                         focusFrames++;
-                        
-                        if (focusFrames >= FRAMES_TO_FREEZE) {
-                            captureFrame();
-                        }
+                        if (focusFrames >= FRAMES_TO_FREEZE) captureFrame();
                     } else {
-                        const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
-                        hintText.innerText = HINTS[activeType];
                         focusFrames = 0;
                     }
                 }
-            }, 100); // 10 FPS
+            }, 150); // Знижено частоту до ~6 FPS для економії батареї
         }
 
         // --- Запасний таймер (Fallback) ---
@@ -355,13 +370,17 @@
             clearTimeout(manualFallbackTimer);
             manualFallbackTimer = setTimeout(() => {
                 if (!isCaptured) {
+                    // Жорстко вбиваємо автосканер, щоб він не перебив ручний клік
+                    clearInterval(processInterval); 
+                    
+                    viewfinder.classList.remove('status-moving', 'status-focusing');
                     manualSnapBtn.style.display = 'block';
-                    hintText.innerText = "Не вдається сфокусуватись. Натисни кнопку";
+                    hintText.innerText = "Фокус втрачено. Зроби фото вручну";
                 }
-            }, 5000);
+            }, 6000); // Таймаут 6 сек, щоб дати час на стабілізацію
         }
 
-        // --- Фіксація кадру ---
+        // --- Фіксація кадру з обрізкою під документ ---
         function captureFrame() {
             if (isCaptured) return;
             isCaptured = true;
@@ -369,16 +388,23 @@
             clearTimeout(manualFallbackTimer);
             video.pause();
 
-            // Малюємо hi-res фото для відправки
-            snapCanvas.width = video.videoWidth || 1280;
-            snapCanvas.height = video.videoHeight || 720;
-            const ctx = snapCanvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+            const vw = video.videoWidth || 1280;
+            const vh = video.videoHeight || 720;
             
-            // Компресія 70%
-            base64Image = snapCanvas.toDataURL('image/jpeg', 0.7);
+            // Обрізаємо відступи зліва/справа, щоб нейромережі було легше читати текст
+            const cropW = vw * 0.9;
+            const cropH = vh * 0.8;
+            const cropX = (vw - cropW) / 2;
+            const cropY = (vh - cropH) / 2;
 
-            // UI Оновлення
+            snapCanvas.width = cropW;
+            snapCanvas.height = cropH;
+            const ctx = snapCanvas.getContext('2d');
+            ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+            
+            // Компресія 60% достатня для OpenAI, значно зменшує Payload Size
+            base64Image = snapCanvas.toDataURL('image/jpeg', 0.6);
+
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             
             viewfinder.className = 'viewfinder status-captured';
@@ -386,11 +412,11 @@
             manualSnapBtn.style.display = 'none';
             retakeBtn.style.display = 'block';
 
-            tg.MainButton.setText("✅ НАДІСЛАТИ НА ПЕРЕВІРКУ");
+            tg.MainButton.setText("✅ ПЕРЕВІРИТИ ДОКУМЕНТ");
             tg.MainButton.show();
         }
 
-        // --- Скидання сканера ---
+        // --- Скидання ---
         function resetScanner() {
             isCaptured = false;
             base64Image = null;
@@ -410,7 +436,7 @@
         manualSnapBtn.addEventListener('click', captureFrame);
         retakeBtn.addEventListener('click', resetScanner);
 
-        // --- Відправка на сервер (MainButton) ---
+        // --- Відправка на бекенд ---
         tg.MainButton.onClick(async () => {
             tg.MainButton.showProgress();
             tg.MainButton.disable();
@@ -432,15 +458,21 @@
                 tg.MainButton.hideProgress();
 
                 if (result.success) {
-                    tg.close(); // Успіх - закриваємо WebApp
+                    // Зупиняємо стрім перед закриттям
+                    if (video.srcObject) {
+                        video.srcObject.getTracks().forEach(track => track.stop());
+                    }
+                    tg.close();
                 } else {
-                    tg.showAlert(result.error || "Помилка перевірки. Будь ласка, спробуй ще раз");
+                    tg.showAlert(result.error || "⚠️ Помилка перевірки. Спробуй ще раз");
                     resetScanner();
+                    tg.MainButton.enable();
                 }
             } catch (err) {
                 tg.MainButton.hideProgress();
                 tg.showAlert("Помилка з'єднання з сервером");
                 resetScanner();
+                tg.MainButton.enable();
             }
         });
 

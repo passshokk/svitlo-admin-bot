@@ -769,11 +769,6 @@ async def curator_reply_handler(message: Message):
 # region FALLBACKs
 # ===============================================================
 
-@fallback_router.message(F.chat.type == "private", F.text.startswith("/"))
-async def unknown_command_handler(message: Message):
-    """Ловить всі команди, які не були спіймані вище (опечатки)"""
-    await message.answer("🤔 Я не знаю такої команди, спробуй /menu")
-
 @fallback_router.message(
     F.chat.type == "private",
     F.text.in_(["❌ Скасувати", "🔙 Назад у меню"])
@@ -793,9 +788,14 @@ async def fallback_msg1(message: Message):
     # print(f"Sticker ID: {message.sticker.file_id}")
     # await message.answer(f"ID цього стікера:\n<code>{message.sticker.file_id}</code>")
 
+@fallback_router.message(F.chat.type == "private", F.text.startswith("/"))
+async def unknown_command_handler(message: Message):
+    """Ловить всі команди, які не були спіймані вище (опечатки)"""
+    await message.answer("🤔 Я не знаю такої команди, спробуй /menu")
+
 @fallback_router.message(F.chat.type == "private")
 async def unknown_content_handler(message: Message):
-    await message.answer("Я тебе не зрозумів 🤷\nСкористайся /menu для навігації")
+    await message.answer("Я тебе не зрозумів 🤷\nСкористайся /menu для навігації", reply_markup=None)
 
 # endregion =====================================================
 # region 

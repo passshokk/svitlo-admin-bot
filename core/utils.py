@@ -6,6 +6,10 @@ import re
 
 from core import config as cfg
 
+# ====================================================================================
+# region Format & Check
+# ====================================================================================
+
 def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""
     full_name = f"{data.get('name', 'Невідомо')} {data.get('surname', '')}".strip()
@@ -84,8 +88,8 @@ def is_russian_phone_number(phone: str) -> bool:
         return True
     return False
 
-# ====================================================================================
-# Notion
+# endregion ==========================================================================
+# region Notion
 # ====================================================================================
 
 # токен з налаштувань інтеграції Notion - https://app.notion.com/developers/connections
@@ -96,11 +100,11 @@ if not NOTION_TOKEN:
 # ID бази даних (рядок символів з URL між / і ?)
 DATABASE_ID = "384f78e184b380b3858ee57ad13f2b54"
 
-def format_notion_date(date_str: str) -> str:
-    """Перетворює рядок з бази у правильний ISO формат з часовим поясом для Notion"""
-    if not date_str:
+def format_notion_date(date_val) -> str:
+    """Перетворює дату у правильний ISO формат з часовим поясом для Notion"""
+    if not date_val:
         return None
-    dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            
     dt = dt.replace(tzinfo=ZoneInfo("Europe/Kyiv"))
     return dt.isoformat()
 
