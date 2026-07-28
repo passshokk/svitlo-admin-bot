@@ -502,8 +502,7 @@ async def process_rules(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
             RULES_MSG,
             reply_markup=kb.get_quiz_start_kb(),
-            disable_web_page_preview=True,
-            reply_markup=None
+            disable_web_page_preview=True
         )
     
 @reg_router.callback_query(Registration.passing_rules, (F.data.startswith("ans_")) | (F.data == "quiz_start"))
