@@ -3,7 +3,7 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no">
     <title>Svitlo Document Scanner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -11,505 +11,838 @@
             --accent-color: #2481cc;
             --success-color: #31b545;
             --warning-color: #e5b016;
-            --bg-color: #0d0f12;
+            --bg-color: #000000;
+
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
         }
 
         * {
             box-sizing: border-box;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
         }
 
         body {
-            margin: 0;
-            padding: 0;
             background-color: var(--bg-color);
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
         }
 
         #scanner-container {
-            position: relative;
-            width: 100%;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: fixed;
+            inset: 0;
             background: #000;
+            overflow: hidden;
         }
 
         video {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
+            transition: filter .25s ease;
         }
 
-        /* Сегментований перемикач типу документа */
-        .segment-control {
+        /* ---------- Верхня панель ---------- */
+        .top-bar {
             position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: calc(var(--safe-top) + 12px);
+            left: 0;
+            right: 0;
             display: flex;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(12px);
-            border-radius: 12px;
-            padding: 4px;
-            z-index: 30;
-            width: 90%;
-            max-width: 400px;
+            align-items: center;
+            gap: 8px;
+            padding: 0 12px;
+            z-index: 60;
+        }
+
+        .segment-control {
+            flex: 1;
+            display: flex;
+            background: rgba(28, 28, 30, 0.55);
+            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 13px;
+            padding: 3px;
         }
 
         .segment-btn {
             flex: 1;
             background: transparent;
-            color: #fff;
+            color: rgba(255, 255, 255, 0.65);
             border: none;
-            padding: 10px 0;
-            font-size: 13px;
+            padding: 9px 2px;
+            font-size: 12.5px;
             font-weight: 600;
-            border-radius: 8px;
+            font-family: inherit;
+            border-radius: 10px;
             cursor: pointer;
-            transition: background 0.3s, box-shadow 0.3s;
+            white-space: nowrap;
+            transition: background .25s ease, color .25s ease;
         }
 
         .segment-btn.active {
-            background: rgba(255, 255, 255, 0.25);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            background: rgba(255, 255, 255, 0.16);
+            color: #fff;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
         }
 
-        /* Затемнення фону (без подвійного накладання) */
+        .icon-btn {
+            width: 42px;
+            height: 42px;
+            flex: 0 0 42px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(28, 28, 30, 0.55);
+            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 13px;
+            font-size: 18px;
+            color: #fff;
+            cursor: pointer;
+            transition: background .2s ease;
+        }
+
+        .icon-btn.available { display: flex; }
+        .icon-btn.on { background: rgba(255, 255, 255, 0.85); color: #000; }
+
+        /* ---------- Видошукач ---------- */
         .overlay-mask {
             position: absolute;
             inset: 0;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 10;
             pointer-events: none;
         }
 
-        /* 1. Забираємо суцільну обводку з рамки видошукача */
         .viewfinder {
             position: relative;
-            border-radius: 16px;
-            box-shadow: 0 0 0 9999px rgba(13, 15, 18, 0.85); 
-            /* border: 2px solid #2481cc; ВИДАЛЕНО, щоб не було некрасивих ліній */
-            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            border-radius: 18px;
+            /* Затемнення всього, що поза рамкою.
+               9999px спред ламає заокруглення кута в WKWebView (Telegram iOS) —
+               рамка виходила гострокутною попри border-radius. 100vmax з запасом
+               покриває будь-який екран і залишається в межах, які Safari рендерить коректно. */
+            box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62);
+            transition: width .35s cubic-bezier(.25,.8,.25,1),
+                        aspect-ratio .35s cubic-bezier(.25,.8,.25,1);
+            /* Компенсуємо верхню панель, щоб рамка не з'їжджала під неї */
+            margin-top: calc(var(--safe-top) / 2);
         }
 
-        /* Пропорції документів */
-        .viewfinder.type-id { width: 85vw; max-width: 420px; aspect-ratio: 1.58 / 1; }
-        .viewfinder.type-passport { width: 85vw; max-width: 420px; aspect-ratio: 1.42 / 1; }
-        .viewfinder.type-cert { width: 75vw; max-width: 380px; aspect-ratio: 1 / 1.41; }
+        .viewfinder.type-id       { width: 88vw; max-width: 440px; aspect-ratio: 1.58 / 1; }
+        .viewfinder.type-passport { width: 88vw; max-width: 440px; aspect-ratio: 1.42 / 1; }
+        .viewfinder.type-cert     { width: 74vw; max-width: 380px; aspect-ratio: 1 / 1.41; }
 
-        /* 2. Додаємо м'яке світіння (drop-shadow) суто для кутиків */
         .corner {
             position: absolute;
-            width: 24px;
-            height: 24px;
-            border: 3.5px solid var(--accent-color);
-            border-radius: 3px;
-            filter: drop-shadow(0 0 6px rgba(36, 129, 204, 0.8));
-            transition: all 0.3s ease;
+            width: 26px;
+            height: 26px;
+            border: 3px solid rgba(255, 255, 255, 0.9);
+            transition: border-color .25s ease, filter .25s ease;
         }
 
-        /* 3. Змінюємо світіння кутиків при русі */
-        .status-moving .corner { 
-            border-color: var(--warning-color); 
-            filter: drop-shadow(0 0 6px rgba(229, 176, 22, 0.8));
+        .top-left     { top: -1px; left: -1px;  border-right: none; border-bottom: none; border-radius: 18px 0 0 0; }
+        .top-right    { top: -1px; right: -1px; border-left: none;  border-bottom: none; border-radius: 0 18px 0 0; }
+        .bottom-left  { bottom: -1px; left: -1px;  border-right: none; border-top: none; border-radius: 0 0 0 18px; }
+        .bottom-right { bottom: -1px; right: -1px; border-left: none;  border-top: none; border-radius: 0 0 18px 0; }
+
+        /* Стани аналізатора — колір лише на кутиках, без суцільних рамок */
+        .viewfinder.status-moving .corner {
+            border-color: var(--warning-color);
         }
 
-        /* 4. Стилізуємо фінальний кадр, який юзер перевірятиме перед відправкою */
-        #snapshot-canvas {
-            display: none; /* Схований до моменту фото */
+        .viewfinder.status-focusing .corner {
+            border-color: var(--accent-color);
+            filter: drop-shadow(0 0 5px rgba(36, 129, 204, 0.55));
+        }
+
+        /* Прогрес автозахоплення — тонка дуга під рамкою */
+        .focus-bar {
             position: absolute;
-            top: 50%;
             left: 50%;
-            transform: translate(-50%, -50%);
-            max-width: 90vw;
-            max-height: 80vh;
-            border-radius: 12px;
-            border: 3px solid var(--success-color); /* Зелена рамка успіху */
-            box-shadow: 0 0 25px rgba(49, 181, 69, 0.5); /* Зелене світіння */
-            z-index: 40;
-        }
-
-        .top-left { top: -2px; left: -2px; border-right: none; border-bottom: none; border-radius: 12px 0 0 0; }
-        .top-right { top: -2px; right: -2px; border-left: none; border-bottom: none; border-radius: 0 12px 0 0; }
-        .bottom-left { bottom: -2px; left: -2px; border-right: none; border-top: none; border-radius: 0 0 0 12px; }
-        .bottom-right { bottom: -2px; right: -2px; border-left: none; border-top: none; border-radius: 0 0 12px 0; }    
-
-        .hint-text {
-            position: absolute;
-            bottom: 15%;
-            left: 50%;
+            bottom: -14px;
             transform: translateX(-50%);
-            text-align: center;
-            font-size: 15px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, 0.95);
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(8px);
-            padding: 10px 24px;
-            border-radius: 20px;
-            white-space: nowrap;
-            z-index: 20;
-            transition: color 0.3s;
+            width: 64px;
+            height: 3px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.18);
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity .2s ease;
         }
 
-        /* Запасна кнопка (Fallback) */
-        #manual-snap-btn, #retake-btn {
+        .viewfinder.status-focusing .focus-bar { opacity: 1; }
+
+        .focus-bar > i {
+            display: block;
+            height: 100%;
+            width: 0%;
+            background: var(--accent-color);
+            transition: width .1s linear;
+        }
+
+        /* ---------- Прев'ю знімка ---------- */
+        #snapshot-canvas {
             display: none;
             position: absolute;
-            bottom: 6%;
+            top: 46%;
             left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 14px 28px;
-            border-radius: 24px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            z-index: 20;
-            transition: background 0.2s;
+            transform: translate(-50%, -50%) scale(.96);
+            opacity: 0;
+            max-width: 88vw;
+            max-height: 58vh;
+            border: none;                       /* без кислотної обводки */
+            border-radius: 14px;
+            box-shadow: 0 14px 44px rgba(0, 0, 0, 0.7),
+                        0 0 0 1px rgba(255, 255, 255, 0.14);
+            z-index: 15;                        /* НИЖЧЕ за підказку та кнопки */
+            transition: opacity .25s ease, transform .25s cubic-bezier(.2,.8,.2,1);
         }
 
-        #manual-snap-btn:active, #retake-btn:active { background: rgba(255, 255, 255, 0.25); }
+        /* ---------- Підказка та кнопки ---------- */
+        .hint-text {
+            position: absolute;
+            left: 50%;
+            bottom: calc(var(--safe-bottom) + 104px);
+            transform: translateX(-50%);
+            max-width: 88vw;
+            text-align: center;
+            font-size: 14.5px;
+            font-weight: 500;
+            line-height: 1.3;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.55);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 18px;
+            z-index: 50;
+            transition: opacity .2s ease;
+        }
 
-        /* Стани аналізатора */
-        .status-moving .corner { border-color: var(--warning-color); }
-        .status-moving ~ .hint-text { color: var(--warning-color); }
-        
-        .status-captured .corner { border-color: var(--success-color); }
-        .status-captured .scan-line { display: none; }
+        .action-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: calc(var(--safe-bottom) + 26px);
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            z-index: 50;
+            pointer-events: none;
+        }
 
-        canvas { display: none; }
+        .action-bar > button {
+            display: none;
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.14);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            padding: 13px 26px;
+            border-radius: 22px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background .18s ease, transform .18s ease;
+        }
+
+        .action-bar > button:active { background: rgba(255, 255, 255, 0.26); transform: scale(.97); }
+
+        /* Ручний спуск — класичне кільце затвора замість текстової кнопки */
+        #manual-snap-btn {
+            width: 68px;
+            height: 68px;
+            padding: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.92);
+            border: 4px solid rgba(255, 255, 255, 0.35);
+            background-clip: padding-box;
+        }
+
+        #manual-snap-btn:active { background: rgba(255, 255, 255, 0.7); }
+
+        /* ---------- Керування станами ---------- */
+        body.state-manual #manual-snap-btn { display: block; }
+
+        body.state-preview video,
+        body.state-preview .overlay-mask,
+        body.state-preview .top-bar,
+        body.state-preview #manual-snap-btn { display: none !important; }
+
+        body.state-preview #snapshot-canvas {
+            display: block;
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        body.state-preview #retake-btn { display: block; }
+
+        body.state-preview .hint-text::before {
+            content: "";
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background: var(--success-color);
+            vertical-align: middle;
+        }
+
+        /* Спалах затвора */
+        #flash {
+            position: absolute;
+            inset: 0;
+            background: #fff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 90;
+        }
+
+        #flash.fire { animation: shutter .28s ease-out; }
+
+        @keyframes shutter {
+            0%   { opacity: .85; }
+            100% { opacity: 0; }
+        }
+
+        #processing-canvas { display: none; }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; animation: none !important; }
+        }
     </style>
 </head>
 <body>
 
     <div id="scanner-container">
-        <!-- Сегментований UI -->
-        <div class="segment-control">
-            <button class="segment-btn active" data-type="type-id">🪪 ID-картка</button>
-            <button class="segment-btn" data-type="type-passport">📘 Закордонний</button>
-            <button class="segment-btn" data-type="type-cert">📄 Свідоцтво</button>
-        </div>
-
         <video id="camera" autoplay playsinline muted></video>
 
-        <!-- Адаптивна рамка -->
+        <div class="top-bar">
+            <div class="segment-control">
+                <button class="segment-btn active" data-type="type-id">ID-картка</button>
+                <button class="segment-btn" data-type="type-passport">Закордонний</button>
+                <button class="segment-btn" data-type="type-cert">Свідоцтво</button>
+            </div>
+            <button class="icon-btn" id="torch-btn" aria-label="Ліхтарик">🔦</button>
+        </div>
+
         <div class="overlay-mask">
             <div class="viewfinder type-id" id="viewfinder">
                 <div class="corner top-left"></div>
                 <div class="corner top-right"></div>
                 <div class="corner bottom-left"></div>
                 <div class="corner bottom-right"></div>
+                <div class="focus-bar"><i id="focus-progress"></i></div>
             </div>
         </div>
 
+        <canvas id="snapshot-canvas"></canvas>
+
         <div class="hint-text" id="hint-text">Наведи на документ</div>
-        <button id="manual-snap-btn">Сфотографувати</button>
-        <button id="retake-btn">🔄 Перезняти</button>
+
+        <div class="action-bar">
+            <button id="manual-snap-btn" aria-label="Зробити фото"></button>
+            <button id="retake-btn">Перезняти</button>
+        </div>
+
+        <div id="flash"></div>
     </div>
 
-    <!-- Hidden Canvases -->
     <canvas id="processing-canvas" width="100" height="100"></canvas>
-    <canvas id="snapshot-canvas"></canvas>
 
     <script>
+    (function () {
+        "use strict";
+
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready();
+        try {
+            tg.setHeaderColor('#000000');
+            tg.setBackgroundColor('#000000');
+            if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+        } catch (e) { /* старі клієнти Telegram */ }
 
-        // UI Елементи
-        const video = document.getElementById('camera');
-        const viewfinder = document.getElementById('viewfinder');
-        const hintText = document.getElementById('hint-text');
-        const manualSnapBtn = document.getElementById('manual-snap-btn');
-        const retakeBtn = document.getElementById('retake-btn');
-        const segmentBtns = document.querySelectorAll('.segment-btn');
+        // --- DOM ---
+        const video        = document.getElementById('camera');
+        const viewfinder   = document.getElementById('viewfinder');
+        const hintText     = document.getElementById('hint-text');
+        const manualBtn    = document.getElementById('manual-snap-btn');
+        const retakeBtn    = document.getElementById('retake-btn');
+        const torchBtn     = document.getElementById('torch-btn');
+        const focusProgress= document.getElementById('focus-progress');
+        const flashEl      = document.getElementById('flash');
+        const segmentBtns  = document.querySelectorAll('.segment-btn');
 
-        // Canvas Елементи
         const procCanvas = document.getElementById('processing-canvas');
-        const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+        const procCtx    = procCanvas.getContext('2d', { willReadFrequently: true });
         const snapCanvas = document.getElementById('snapshot-canvas');
 
-        // Стейт-машина
-        let isCaptured = false;
-        let binaryBlob = null;
-        let processInterval = null;
+        // --- Стейт ---
+        let isCaptured        = false;
+        let binaryBlob        = null;
+        let isEncoding        = false;   // toBlob ще не завершився
+        let processInterval   = null;
         let manualFallbackTimer = null;
+        let analyzerWorker    = null;
+        let isProcessingFrame = false;
+        let focusFrames       = 0;
+        let badStreak         = 0;
+        let mediaStream       = null;
+        let torchOn           = false;
 
-        // Параметри оптимізованого аналізу
-        let prevGray = null;
-        let focusFrames = 0;
-        const MOTION_THRESH = 12; // Чим вище, тим більше руху дозволено
-        const SHARPNESS_THRESH = 20; // Мінімальна кількість тексту/контрасту в кадрі
-        const FRAMES_TO_FREEZE = 12; // 12 кадрів (1.2 сек) стабільності для автокліку
+        // --- Пороги автозахоплення ---
+        // Заміряно на синтетичних кадрах 100x100:
+        //   документ  -> edges 6..19,  contrast 53..81
+        //   долоня    -> edges 0.16,   contrast 4.3
+        //   стіл/стіна-> edges 0.13,   contrast 0..13
+        const MOTION_THRESH    = 12;  // середня різниця пікселів між кадрами
+        const SHARPNESS_THRESH = 4;   // середній горизонтальний градієнт (деталізація/різкість)
+        const CONTRAST_THRESH  = 20;  // стандартне відхилення яскравості (у кадрі документ, а не рука/стіна)
+        const FRAMES_TO_FREEZE = 10;  // 10 кадрів * 100мс = 1с стабільності
+        const FALLBACK_MS      = 7000;
+        const BAD_FRAME_TOLERANCE = 3; // терпимість до одиничного шуму (дрож, блік), щоб рамка/текст не мигали
 
         const HINTS = {
-            'type-id': "Наведи на ID-картку",
-            'type-passport': "Наведи на головну сторінку паспорту",
-            'type-cert': "Наведи на свідоцтво про народження цілком"
+            'type-id':       "Наведи на ID-картку — має бути видно все поле рамки",
+            'type-passport': "Наведи на головну сторінку паспорта",
+            'type-cert':     "Свідоцтво про народження має вміститись цілком"
         };
 
-        // --- Безпечна ініціалізація камери з фолбеками ---
-        async function initCamera() {
-            const idealConstraints = { video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
-            const fallbackConstraints = { video: { facingMode: "environment" }, audio: false };
+        function setHint(text) {
+            if (hintText.innerText !== text) hintText.innerText = text;
+        }
 
-            try {
-                video.srcObject = await navigator.mediaDevices.getUserMedia(idealConstraints);
-            } catch (err) {
+        function activeType() {
+            const btn = document.querySelector('.segment-btn.active');
+            return btn ? btn.getAttribute('data-type') : 'type-id';
+        }
+
+        // ============ Камера ============
+        async function initCamera() {
+            // Портретна орієнтація стріму — принципово.
+            // При 1920x1080 у портретному вікні object-fit:cover ріже боки, і на рамку
+            // документа лишається ~480px по ширині. Портретний 1080x1920 дає ~860px.
+            const attempts = [
+                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1080 }, height: { ideal: 1920 } }, audio: false },
+                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+                { video: { facingMode: "environment" }, audio: false },
+                { video: true, audio: false }
+            ];
+
+            for (const constraints of attempts) {
                 try {
-                    video.srcObject = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                } catch (fallbackErr) {
-                    return tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
-                }
+                    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    break;
+                } catch (err) { /* пробуємо наступний фолбек */ }
             }
-            
+
+            if (!mediaStream) {
+                setHint("Немає доступу до камери");
+                tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
+                return;
+            }
+
+            video.srcObject = mediaStream;
+            initTorch();
+
             video.onloadedmetadata = () => {
+                video.play().catch(() => {});
+                setHint(HINTS[activeType()]);
                 startAnalyzer();
                 startFallbackTimer();
             };
         }
 
-        // --- Сегментований перемикач ---
-        segmentBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                if(isCaptured) return;
-                segmentBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                
-                const type = btn.getAttribute('data-type');
-                viewfinder.className = `viewfinder ${type}`;
-                hintText.innerText = HINTS[type];
-            });
-        });
+        function initTorch() {
+            const track = mediaStream.getVideoTracks()[0];
+            if (!track || typeof track.getCapabilities !== 'function') return;
+            const caps = track.getCapabilities();
+            if (!caps || !caps.torch) return;
 
-        // --- Ініціалізація Web Worker з обробкою CSP обмежень iOS ---
-        let analyzerWorker = null;
-        let isProcessingFrame = false; // Запобіжник переповнення черги (Backpressure)
+            torchBtn.classList.add('available');
+            torchBtn.addEventListener('click', async () => {
+                torchOn = !torchOn;
+                try {
+                    await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+                    torchBtn.classList.toggle('on', torchOn);
+                } catch (e) {
+                    torchOn = false;
+                    torchBtn.classList.remove('available');
+                }
+            });
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+        }
+
+        // ============ Геометрія: рамка -> координати відеокадру ============
+        // Відео рендериться з object-fit: cover, тому потрібен зворотний мапінг.
+        function getCropRect() {
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            const vr = video.getBoundingClientRect();
+            const fr = viewfinder.getBoundingClientRect();
+
+            if (!vw || !vh || !vr.width) return null;
+
+            const scale = Math.max(vr.width / vw, vr.height / vh);
+            const offX  = (vr.width  - vw * scale) / 2;
+            const offY  = (vr.height - vh * scale) / 2;
+
+            const PAD = 0.05; // 5% запасу навколо рамки, щоб не зрізати край документа
+
+            let sw = (fr.width  / scale) * (1 + PAD * 2);
+            let sh = (fr.height / scale) * (1 + PAD * 2);
+            let sx = (fr.left - vr.left - offX) / scale - (fr.width  / scale) * PAD;
+            let sy = (fr.top  - vr.top  - offY) / scale - (fr.height / scale) * PAD;
+
+            sx = Math.max(0, Math.min(sx, vw - 1));
+            sy = Math.max(0, Math.min(sy, vh - 1));
+            sw = Math.min(sw, vw - sx);
+            sh = Math.min(sh, vh - sy);
+
+            return { sx, sy, sw, sh };
+        }
+
+        // ============ Web Worker аналізу кадру ============
+        const WORKER_CODE = `
+        let prevGray = null;
+        self.onmessage = function (e) {
+            if (e.data.command === 'reset') { prevGray = null; return; }
+
+            const d = e.data.imgData;
+            const N = 10000;          // 100x100
+            const gray = new Uint8Array(N);
+            const hadPrev = prevGray !== null;
+            let motion = 0, sum = 0, sumSq = 0;
+
+            // Прохід 1: сірий + рух + статистика яскравості
+            for (let i = 0; i < N; i++) {
+                const o = i * 4;
+                const v = (d[o] * 3 + d[o + 1] * 4 + d[o + 2]) >>> 3;
+                gray[i] = v;
+                sum += v;
+                sumSq += v * v;
+                if (prevGray) motion += Math.abs(v - prevGray[i]);
+            }
+
+            // Прохід 2: горизонтальний градієнт (масив уже повністю заповнений).
+            // У попередній версії це рахувалось в одному циклі, тому gray[i+1]
+            // завжди дорівнював 0 і "різкість" фактично дорівнювала яскравості кадру.
+            let edges = 0;
+            for (let i = 0; i < N; i++) {
+                if (i % 100 !== 99) edges += Math.abs(gray[i] - gray[i + 1]);
+            }
+
+            const mean = sum / N;
+            const stddev = Math.sqrt(Math.max(0, sumSq / N - mean * mean));
+
+            prevGray = gray;
+            self.postMessage({
+                // Перший кадр після старту/ресету не має з чим порівнюватись —
+                // повертаємо завідомо великий рух, щоб не спрацював автоспуск
+                motion: hadPrev ? motion / N : 999,
+                edges: edges / N,
+                contrast: stddev
+            });
+        };
+        `;
+
+        function enableManualMode(message) {
+            clearInterval(processInterval);
+            clearTimeout(manualFallbackTimer);
+            viewfinder.classList.remove('status-moving', 'status-focusing');
+            document.body.classList.add('state-manual');
+            setHint(message);
+        }
 
         try {
-            const workerCode = `
-            let prevGray = null;
-            self.onmessage = function(e) {
-                if (e.data.command === 'reset') {
-                    prevGray = null;
-                    return;
-                }
-                
-                const imgData = e.data.imgData;
-                let currentGray = new Uint8Array(10000);
-                let motion = 0;
-                let edges = 0;
+            const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+            analyzerWorker = new Worker(URL.createObjectURL(blob));
 
-                for (let i = 0; i < 10000; i++) {
-                    const offset = i * 4;
-                    currentGray[i] = (imgData[offset] * 3 + imgData[offset+1] * 4 + imgData[offset+2]) >>> 3;
-                    if (prevGray) motion += Math.abs(currentGray[i] - prevGray[i]);
-                    if (i % 100 !== 99) edges += Math.abs(currentGray[i] - currentGray[i+1]);
-                }
-                
-                prevGray = currentGray;
-                self.postMessage({ motion: motion / 10000, edges: edges / 10000 });
+            analyzerWorker.onerror = () => {
+                analyzerWorker = null;
+                enableManualMode("Автофокус недоступний. Зроби фото вручну");
             };
-            `;
-            const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-            analyzerWorker = new Worker(URL.createObjectURL(workerBlob));
 
             analyzerWorker.onmessage = (e) => {
-                isProcessingFrame = false; // Знімаємо лок після успішної обробки
-                
-                const { motion, edges } = e.data;
-                if (motion > MOTION_THRESH) {
+                isProcessingFrame = false;
+                if (isCaptured) return;
+
+                const { motion, edges, contrast } = e.data;
+                const isMoving = motion > MOTION_THRESH;
+                // Документ = достатньо деталей І достатній контраст.
+                // Долоня, стіл чи стіна дають високу яскравість, але низький контраст.
+                const isSharp  = edges > SHARPNESS_THRESH && contrast > CONTRAST_THRESH;
+
+                if (!isMoving && isSharp) {
+                    badStreak = 0;
+                    viewfinder.classList.remove('status-moving');
+                    viewfinder.classList.add('status-focusing');
+                    setHint("Тримай так — знімаю");
+                    focusFrames++;
+                    focusProgress.style.width = Math.min(100, (focusFrames / FRAMES_TO_FREEZE) * 100) + '%';
+                    if (focusFrames >= FRAMES_TO_FREEZE) captureFrame();
+                    return;
+                }
+
+                // Кадр "поганий" (рух/розфокус) — не скидаємо UI одразу.
+                // Одиничний шумний кадр не рахуємо: чекаємо серію з BAD_FRAME_TOLERANCE,
+                // інакше рамка й текст мигали при щонайменшому дрожі руки.
+                badStreak++;
+                if (badStreak < BAD_FRAME_TOLERANCE) return;
+
+                focusFrames = 0;
+                focusProgress.style.width = '0%';
+                viewfinder.classList.remove('status-focusing');
+
+                if (isMoving) {
                     viewfinder.classList.add('status-moving');
-                    viewfinder.classList.remove('status-focusing');
-                    hintText.innerText = "Тримай телефон нерухомо";
-                    focusFrames = 0;
+                    setHint("Тримай телефон нерухомо");
                 } else {
                     viewfinder.classList.remove('status-moving');
-                    if (edges > SHARPNESS_THRESH) {
-                        const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
-                        hintText.innerText = "Фокусуємось...";
-                        focusFrames++;
-                        if (focusFrames >= FRAMES_TO_FREEZE) captureFrame();
-                    } else {
-                        focusFrames = 0;
-                    }
+                    setHint("Розмісти документ у рамці повністю");
                 }
             };
         } catch (err) {
             console.error("Web Worker заблоковано CSP або не підтримується:", err);
-            // Негайно активуємо ручний режим замість блокування UI на 6 секунд
-            setTimeout(() => {
-                clearInterval(processInterval);
-                clearTimeout(manualFallbackTimer);
-                viewfinder.classList.remove('status-moving', 'status-focusing');
-                manualSnapBtn.style.display = 'block';
-                hintText.innerText = "Автофокус недоступний. Зроби фото вручну";
-            }, 200);
+            analyzerWorker = null;
+            setTimeout(() => enableManualMode("Автофокус недоступний. Зроби фото вручну"), 200);
         }
 
-        // --- Оптимізований аналізатор (ЄДИНИЙ ЕКЗЕМПЛЯР ФУНКЦІЇ) ---
+        // ============ Цикл аналізу ============
         function startAnalyzer() {
-            if (processInterval) clearInterval(processInterval);
+            if (!analyzerWorker) return;
+            clearInterval(processInterval);
             focusFrames = 0;
             isProcessingFrame = false;
-            
+            focusProgress.style.width = '0%';
+
             processInterval = setInterval(() => {
-                // Блокуємо відправку, якщо Worker ще рахує попередній кадр або відео не готове
-                if (isCaptured || video.readyState !== 4 || isProcessingFrame || !analyzerWorker) return;
+                if (isCaptured || video.readyState !== 4 || isProcessingFrame) return;
 
-                const vw = video.videoWidth;
-                const vh = video.videoHeight;
-                const minDim = Math.min(vw, vh);
-                const cropSize = minDim * 0.7; 
-                const sx = (vw - cropSize) / 2;
-                const sy = (vh - cropSize) / 2;
+                const r = getCropRect();
+                if (!r) return;
 
-                procCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, 100, 100);
+                // Аналізуємо рівно ту зону, яку потім зріжемо — інакше пороги брешуть
+                procCtx.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, 100, 100);
                 const imgData = procCtx.getImageData(0, 0, 100, 100).data;
-                
-                isProcessingFrame = true; // Лочимо потік до відповіді від Worker
+
+                isProcessingFrame = true;
                 analyzerWorker.postMessage({ imgData: imgData });
-            }, 100); // Можна безпечно зменшити до 100мс (10 FPS), оскільки UI більше не блокується
+            }, 100);
         }
 
-        // --- Запасний таймер (Fallback) ---
         function startFallbackTimer() {
             clearTimeout(manualFallbackTimer);
             manualFallbackTimer = setTimeout(() => {
-                if (!isCaptured) {
-                    // Жорстко вбиваємо автосканер, щоб він не перебив ручний клік
-                    clearInterval(processInterval); 
-                    
-                    viewfinder.classList.remove('status-moving', 'status-focusing');
-                    manualSnapBtn.style.display = 'block';
-                    hintText.innerText = "Фокус втрачено. Зроби фото вручну";
-                }
-            }, 6000); // Таймаут 6 сек, щоб дати час на стабілізацію
+                if (!isCaptured) enableManualMode("Не вдається зафіксувати автоматично — зніми вручну");
+            }, FALLBACK_MS);
         }
 
-        // --- Фіксація кадру (Обхід сірого екрана iOS) ---
+        function resetAnalyzerState() {
+            focusFrames = 0;
+            badStreak = 0;
+            focusProgress.style.width = '0%';
+            if (analyzerWorker) analyzerWorker.postMessage({ command: 'reset' });
+        }
+
+        // ============ Перемикач типу документа ============
+        segmentBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (isCaptured) return;
+                segmentBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const type = btn.getAttribute('data-type');
+                viewfinder.className = `viewfinder ${type}`;
+                setHint(HINTS[type]);
+
+                resetAnalyzerState();
+                startFallbackTimer();
+                if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+            });
+        });
+
+        // ============ Захоплення кадру ============
         function captureFrame() {
             if (isCaptured) return;
             isCaptured = true;
             clearInterval(processInterval);
             clearTimeout(manualFallbackTimer);
+
+            const r = getCropRect() || {
+                sx: 0, sy: 0,
+                sw: video.videoWidth || 1280,
+                sh: video.videoHeight || 720
+            };
+
+            // Обмежуємо довшу сторону — менший payload при тій же читабельності тексту
+            const MAX_SIDE = 1600;
+            const k = Math.min(1, MAX_SIDE / Math.max(r.sw, r.sh));
+            snapCanvas.width  = Math.max(1, Math.round(r.sw * k));
+            snapCanvas.height = Math.max(1, Math.round(r.sh * k));
+
+            const ctx = snapCanvas.getContext('2d');
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, snapCanvas.width, snapCanvas.height);
+
+            // CSS max-width/max-height на <canvas> ненадійно комбінуються зі
+            // збереженням пропорцій у WKWebView — картка прев'ю виходила на
+            // весь екран. Рахуємо CSS-розмір явно, як для <img>/<video>.
+            const maxW = window.innerWidth  * 0.88;
+            const maxH = window.innerHeight * 0.58;
+            const fit  = Math.min(maxW / snapCanvas.width, maxH / snapCanvas.height, 1);
+            snapCanvas.style.width  = Math.round(snapCanvas.width  * fit) + 'px';
+            snapCanvas.style.height = Math.round(snapCanvas.height * fit) + 'px';
+
             video.pause();
 
-            const vw = video.videoWidth || 1280;
-            const vh = video.videoHeight || 720;
-            
-            // Обрізаємо відступи зліва/справа
-            const cropW = vw * 0.9;
-            const cropH = vh * 0.8;
-            const cropX = (vw - cropW) / 2;
-            const cropY = (vh - cropH) / 2;
+            isEncoding = true;
+            binaryBlob = null;
+            // 0.6 з'їдало дрібний текст документа — для Vision тримаємо 0.85
+            snapCanvas.toBlob((blob) => {
+                binaryBlob = blob;
+                isEncoding = false;
+            }, 'image/jpeg', 0.85);
 
-            snapCanvas.width = cropW;
-            snapCanvas.height = cropH;
-            const ctx = snapCanvas.getContext('2d');
-            ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-            
-            snapCanvas.toBlob((blob) => { binaryBlob = blob; }, 'image/jpeg', 0.6);
+            flashEl.classList.remove('fire');
+            void flashEl.offsetWidth;
+            flashEl.classList.add('fire');
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            
-            video.style.display = 'none';
-            document.querySelector('.overlay-mask').style.display = 'none';
-            document.querySelector('.segment-control').style.display = 'none';
-            snapCanvas.style.display = 'block';
 
-            hintText.innerText = "Пересвідчись в якості фото";
-            manualSnapBtn.style.display = 'none';
-            retakeBtn.style.display = 'block';
+            document.body.classList.remove('state-manual');
+            document.body.classList.add('state-preview');
+            setHint("Перевір, чи чітко читається текст");
 
-            tg.MainButton.setText("✅ ПЕРЕВІРИТИ ДОКУМЕНТ");
+            tg.MainButton.setText("ПЕРЕВІРИТИ ДОКУМЕНТ");
+            tg.MainButton.enable();
             tg.MainButton.show();
+            tg.BackButton.show();
         }
 
-        // --- Скидання UI до початкового стану ---
+        // ============ Скидання ============
         function resetScanner() {
             isCaptured = false;
             binaryBlob = null;
-            focusFrames = 0; // Скидаємо локальний лічильник
-    
-            // Скидаємо масив попереднього кадру у воркері
-            analyzerWorker.postMessage({ command: 'reset' });
-            
-            // Повертаємо камеру та скануючий інтерфейс
-            snapCanvas.style.display = 'none';
-            video.style.display = 'block';
-            document.querySelector('.overlay-mask').style.display = 'flex';
-            document.querySelector('.segment-control').style.display = 'flex';
-            
-            video.play();
-            
-            const activeType = document.querySelector('.segment-btn.active').getAttribute('data-type');
-            viewfinder.className = `viewfinder ${activeType}`;
-            hintText.innerText = HINTS[activeType];
-            
-            retakeBtn.style.display = 'none';
-            tg.MainButton.hide();
+            isEncoding = false;
 
+            resetAnalyzerState();
+
+            document.body.classList.remove('state-preview', 'state-manual');
+            viewfinder.className = `viewfinder ${activeType()}`;
+            setHint(HINTS[activeType()]);
+
+            tg.MainButton.hideProgress();
+            tg.MainButton.hide();
+            tg.BackButton.hide();
+
+            video.play().catch(() => {});
             startAnalyzer();
             startFallbackTimer();
         }
 
-        manualSnapBtn.addEventListener('click', captureFrame);
+        manualBtn.addEventListener('click', captureFrame);
         retakeBtn.addEventListener('click', resetScanner);
+        tg.BackButton.onClick(() => { if (isCaptured) resetScanner(); });
 
-        // --- Відправка на бекенд ---
+        // ============ Відправка ============
+        function waitForBlob(timeoutMs = 4000) {
+            return new Promise((resolve, reject) => {
+                const started = Date.now();
+                (function poll() {
+                    if (binaryBlob) return resolve(binaryBlob);
+                    if (!isEncoding && !binaryBlob) return reject(new Error('encode-failed'));
+                    if (Date.now() - started > timeoutMs) return reject(new Error('encode-timeout'));
+                    setTimeout(poll, 60);
+                })();
+            });
+        }
+
         tg.MainButton.onClick(async () => {
+            if (!isCaptured) return;
+
             tg.MainButton.showProgress();
             tg.MainButton.disable();
 
-            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            let payload;
+            try {
+                payload = await waitForBlob();
+            } catch (e) {
+                tg.MainButton.hideProgress();
+                tg.MainButton.enable();
+                tg.showAlert("Не вдалося підготувати фото. Перезніми, будь ласка");
+                return resetScanner();
+            }
+
             const formData = new FormData();
-            formData.append('image', binaryBlob, 'doc.jpg');
+            formData.append('image', payload, 'doc.jpg');
             formData.append('init_data', tg.initData);
-            formData.append('timezone', userTimezone);
+            formData.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
 
             try {
-                const response = await fetch('/api/vision', {
-                    method: 'POST',
-                    body: formData // Зверни увагу: Content-Type видалено, браузер встановить його сам (з boundary)
-                });
-
+                const response = await fetch('/api/vision', { method: 'POST', body: formData });
                 const result = await response.json();
+
                 tg.MainButton.hideProgress();
 
-                if (result.success) {
-                    // Зупиняємо стрім перед закриттям
-                    if (video.srcObject) {
-                        video.srcObject.getTracks().forEach(track => track.stop());
-                    }
+                if (result && result.success) {
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    stopCamera();
                     tg.close();
-                } else {
-                    tg.showAlert(result.error || "⚠️ Помилка перевірки. Спробуй ще раз");
-                    resetScanner();
-                    tg.MainButton.enable();
+                    return;
                 }
+
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+                tg.showAlert((result && result.error) || "⚠️ Помилка перевірки. Спробуй ще раз");
+                resetScanner();
+                tg.MainButton.enable();
             } catch (err) {
                 tg.MainButton.hideProgress();
-                tg.showAlert("Помилка з'єднання з сервером");
+                tg.showAlert("Помилка з'єднання з сервером. Перевір інтернет і спробуй ще раз");
                 resetScanner();
                 tg.MainButton.enable();
             }
         });
 
+        // Прибираємо за собою, щоб камера не лишалась активною
+        window.addEventListener('pagehide', stopCamera);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearInterval(processInterval);
+            } else if (!isCaptured && mediaStream) {
+                video.play().catch(() => {});
+                resetAnalyzerState();
+                startAnalyzer();
+            }
+        });
+
         initCamera();
+    })();
     </script>
 </body>
 </html>

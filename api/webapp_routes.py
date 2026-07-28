@@ -5,6 +5,7 @@ import hashlib
 import json
 import base64
 import re
+import time
 from urllib.parse import parse_qsl
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
@@ -33,6 +34,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 vertexai.init(project="svitlo-auth-bot", location="global")
 vision_model = GenerativeModel("gemini-3.5-flash-lite")
 
+# Ліміти захисту ендпоінта
+MAX_INITDATA_AGE = 3600          # initData живе годину, далі — реджект (анти-replay)
+MAX_IMAGE_BYTES = 6 * 1024 * 1024  # 6 МБ при 512Mi RAM контейнера
+ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+
 BLOCKED_TIMEZONES = {
     "Europe/Moscow", "Europe/Samara", "Asia/Yekaterinburg", 
     "Europe/Volgograd", "Asia/Omsk", "Asia/Novosibirsk", 
@@ -51,7 +57,18 @@ def validate_tg_init_data(init_data: str, token: str) -> bool:
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        return calculated_hash == received_hash
+
+        # hmac.compare_digest замість == — захист від timing-атак
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return False
+
+        # Перевірка свіжості: без неї перехоплений initData валідний вічно (replay)
+        auth_date = int(parsed_data.get("auth_date", 0))
+        if auth_date <= 0 or (time.time() - auth_date) > MAX_INITDATA_AGE:
+            logging.warning("initData rejected: stale auth_date")
+            return False
+
+        return True
     except Exception:
         return False
 
@@ -113,11 +130,21 @@ async def process_vision(
         await db.clear_user_fsm(user_id)
         return {"success": False, "error": "Регіональні параметри пристрою не підтримуються"}
     
-    # 5. Перевірка 3: ШІ-аналіз документа через Gemini Vision
+    # 5. Валідація самого файлу до того, як він піде в Vertex AI
+    image_bytes = await image.read()
+    if not image_bytes:
+        return {"success": False, "error": "Порожній файл. Перезніми документ"}
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        return {"success": False, "error": "Файл завеликий. Перезніми документ"}
+
+    mime_type = (image.content_type or "image/jpeg").split(";")[0].strip().lower()
+    if mime_type not in ALLOWED_MIME:
+        return {"success": False, "error": "Непідтримуваний формат зображення"}
+
+    # 6. Перевірка 3: ШІ-аналіз документа через Gemini Vision
     try:
-        image_bytes = await image.read()
-        image_part = Part.from_data(data=image_bytes, mime_type="image/jpeg")
-        
+        image_part = Part.from_data(data=image_bytes, mime_type=mime_type)
+
         prompt = """Аналізуй цей документ. Поверни суворий JSON:
         {
           "is_ua_document": true/false, 
@@ -141,58 +168,71 @@ async def process_vision(
         if result.get("has_russian_markers"):
             await db.update_crm_stage(doc_id, "blocked")
             await db.clear_user_fsm(user_id)
-            return {"success": False, "error": "Документ не пройшел перевірку безпеки."}
+            return {"success": False, "error": "Документ не пройшов перевірку безпеки"}
 
-        # Маршрутизація успішного українського документа
-        if result.get("is_ua_document") and result.get("confidence", 0) > 0.6:
-            student_data = student['data']
-            
-            await firestore_client.collection('Svitlo').document(doc_id).update({
-                "ai_doc_valid": True,
-                "ai_doc_type": result.get("doc_type", "unknown"),
-                "crm_stage": "admin_review",
-                "crm_stage_updated_at": db.get_kyivtime_now()
-                })
-            await db.set_user_fsm_state(user_id, "Registration:admin_review")
-            
-            # Server-Side Push: Сповіщаємо юзера про успіх
-            try:
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=APPLICATION_RECEIVED_MSG
-                )
-            except Exception as e:
-                logging.warning(f"Failed to notify user {user_id}: {e}")
-            
-            # Сповіщення в групу кураторів
-            try:
-                tg_username = student_data.get('telegramUsername', '').replace('@', '')
-                keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
-                
-                full_name = f"{student_data.get('first_name', '')} {student_data.get('last_name', '')}"
-                age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
-                phone = student_data.get('phone', 'Не вказано')
-                display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
+        # Розділяємо гілки відмов, щоб підказка юзеру відповідала реальній причині
+        if not result.get("is_ua_document"):
+            return {
+                "success": False,
+                "error": "Це не схоже на документ України. Перевір, що в кадрі саме документ, і спробуй ще раз"
+            }
 
-                await bot.send_message(
-                    chat_id=cfg.ADMIN_GROUP_ID,
-                    text=(
-                        f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
-                        f"<b>Студент:</b> {full_name}\n"
-                        f"<b>Група:</b> {age_group}\n"
-                        f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
-                        f"<b>ШІ розпізнав:</b> {result.get('doc_type')} (Точність: {int(result.get('confidence', 0)*100)}%)\n\n"
-                        f"Очікує рішення куратора:"
-                    ),
-                    reply_markup=keyboard
-                )
-                return {"success": True}
-            
-            except Exception as e:
-                logging.error(f"Failed to send admin notification: {e}")
-        else:
-            return {"success": False, "error": "Не знайдено українських маркерів. Переконайся, що документ добре видно у кадрі, та спробуй ще раз"}
-            
+        confidence = float(result.get("confidence", 0) or 0)
+        if confidence <= 0.6:
+            return {
+                "success": False,
+                "error": "Зображення нечітке. Протри камеру, додай світла й перезніми документ"
+            }
+
+        # --- Маршрутизація успішного українського документа ---
+        student_data = student['data']
+
+        await firestore_client.collection('Svitlo').document(doc_id).update({
+            "ai_doc_valid": True,
+            "ai_doc_type": result.get("doc_type", "unknown"),
+            "crm_stage": "admin_review",
+            "crm_stage_updated_at": db.get_kyivtime_now()
+        })
+        await db.set_user_fsm_state(user_id, "Registration:admin_review")
+
+        # Server-Side Push: Сповіщаємо юзера про успіх
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=APPLICATION_RECEIVED_MSG
+            )
+        except Exception as e:
+            logging.warning(f"Failed to notify user {user_id}: {e}")
+
+        # Сповіщення в групу кураторів
+        try:
+            tg_username = student_data.get('telegramUsername', '').replace('@', '')
+            keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
+
+            full_name = f"{student_data.get('first_name', '')} {student_data.get('last_name', '')}"
+            age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
+            phone = student_data.get('phone', 'Не вказано')
+            display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
+
+            await bot.send_message(
+                chat_id=cfg.ADMIN_GROUP_ID,
+                text=(
+                    f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
+                    f"<b>Студент:</b> {full_name}\n"
+                    f"<b>Група:</b> {age_group}\n"
+                    f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
+                    f"<b>ШІ розпізнав:</b> {result.get('doc_type')} (Точність: {int(confidence * 100)}%)\n\n"
+                    f"Очікує рішення куратора:"
+                ),
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            # Заявку вже прийнято і записано у Firestore, а юзер отримав підтвердження.
+            # Падіння сповіщення в групу НЕ має відкочувати UI сканера у стан помилки.
+            logging.error(f"Failed to send admin notification: {e}")
+
+        return {"success": True}
+
     except Exception as e:
-        logging.error(f"Vertex AI Vision Error: {e}")
+        logging.exception(f"Vertex AI Vision Error: {e}")
         return {"success": False, "error": "Помилка обробки ШІ. Спробуй пізніше"}
