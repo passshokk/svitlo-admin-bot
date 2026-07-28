@@ -17,7 +17,7 @@
             --brand-sage:   #97BBA7;
             --brand-red:    #912627;
 
-            --accent-color: var(--brand-gold);
+            --accent-color: #2481cc;
             --success-color: var(--brand-sage);
             --warning-color: var(--brand-red);
             --bg-color: #000000;
@@ -179,7 +179,7 @@
 
         .viewfinder.status-focusing .corner {
             border-color: var(--accent-color);
-            filter: drop-shadow(0 0 5px rgba(220, 175, 66, 0.6));
+            filter: drop-shadow(0 0 5px rgba(36, 129, 204, 0.55));
         }
 
         /* Прогрес автозахоплення — тонка дуга під рамкою */
@@ -309,7 +309,7 @@
         /* У прев'ю фото над кнопками лишалось багато порожнього простору —
            підказку тримаємо ближче до дій, а не посередині екрана. */
         body.state-preview .hint-text {
-            bottom: calc(var(--safe-bottom) + 64px);
+            bottom: calc(var(--safe-bottom) + 96px);
         }
 
         body.state-preview .hint-text::before {
@@ -435,7 +435,7 @@
         const SHARPNESS_THRESH = 4;   // середній горизонтальний градієнт (деталізація/різкість)
         const CONTRAST_THRESH  = 20;  // стандартне відхилення яскравості (у кадрі документ, а не рука/стіна)
         const FRAMES_TO_FREEZE = 10;  // 10 кадрів * 100мс = 1с стабільності
-        const FALLBACK_MS      = 7000;
+        const FALLBACK_MS      = 10000;
         const BAD_FRAME_TOLERANCE = 3; // терпимість до одиничного шуму (дрож, блік), щоб рамка/текст не мигали
 
         const HINTS = {
@@ -493,13 +493,16 @@
 
         function initZoom() {
             // На частині телефонів "environment" камера стартує з дефолтним
-            // цифровим/оптичним зумом > 1x (виглядає так, ніби об'єктив
-            // "наближає"). Скидаємо на мінімальний zoom, якщо драйвер це дозволяє.
+            // зумом > 1x (виглядає так, ніби об'єктив "наближає"). Ціль — рівно
+            // 1x. Не йдемо нижче: на деяких пристроях діапазон zoom продовжується
+            // нижче 1 переключенням на фізичний ультраширокий об'єктив, у якого
+            // менший сенсор і помітно більше шуму в темряві.
             const track = mediaStream.getVideoTracks()[0];
             if (!track || typeof track.getCapabilities !== 'function') return;
             const caps = track.getCapabilities();
             if (!caps || !caps.zoom) return;
-            track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] }).catch(() => {});
+            const target = Math.min(Math.max(1, caps.zoom.min), caps.zoom.max);
+            track.applyConstraints({ advanced: [{ zoom: target }] }).catch(() => {});
         }
 
         function initTorch() {
@@ -714,7 +717,10 @@
             if (!rect.height) return;
 
             const maxTop = window.innerHeight - 170; // лишаємо місце під кнопку спуску
-            hintText.style.bottom = '';
+            // bottom має бути 'auto', а не '' — inline '' лише знімає override,
+            // і далі діє stylesheet-правило .hint-text{bottom:...}; разом із
+            // заданим top це розтягує блок на всю відстань між ними.
+            hintText.style.bottom = 'auto';
             hintText.style.top = Math.min(Math.round(rect.bottom + 22), maxTop) + 'px';
         }
 
