@@ -101,8 +101,7 @@ def get_quiz_kb(options: list) -> InlineKeyboardMarkup:
 # --- ID check ---
 
 def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
-    service_url = os.getenv("SERVICE_URL", "https://svitlo-auth-bot-956835627561.europe-west3.run.app")
-    webapp_url = f"{service_url.rstrip('/')}/webapp/camera"
+    webapp_url = os.getenv("WEBAPP_URL")
     
     builder = InlineKeyboardBuilder()
     builder.button(

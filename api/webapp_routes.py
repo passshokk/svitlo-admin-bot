@@ -14,6 +14,7 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 import logging
 import httpx
+from fastapi import File, Form, UploadFile, Request, APIRouter, HTTPException
 
 from bot import keyboards as kb
 from core import database as db
@@ -38,11 +39,6 @@ BLOCKED_TIMEZONES = {
     "Asia/Krasnoyarsk", "Asia/Irkutsk", "Asia/Yakutsk", 
     "Asia/Vladivostok", "Asia/Magadan", "Asia/Kamchatka", "Asia/Anadyr"
 }
-
-class VisionPayload(BaseModel):
-    image_base64: str
-    init_data: str
-    timezone: str | None = None
 
 def validate_tg_init_data(init_data: str, token: str) -> bool:
     if not init_data:
@@ -79,17 +75,27 @@ async def get_scanner_ui():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 @webapp_router.post("/api/vision")
-async def process_vision(payload: VisionPayload, request: Request):
+async def process_vision(
+    request: Request,
+    image: UploadFile = File(...),
+    init_data: str = Form(...),
+    timezone: str | None = Form(default=None)
+):
     # 1. Валідація Telegram init_data
-    if not validate_tg_init_data(payload.init_data, BOT_TOKEN):
+    if not validate_tg_init_data(init_data, BOT_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid InitData")
     
     try:
-        parsed_data = dict(parse_qsl(payload.init_data))
+        parsed_data = dict(parse_qsl(init_data))
         user_data = json.loads(parsed_data['user'])
         user_id = user_data['id']
     except Exception:
         raise HTTPException(status_code=400, detail="Cannot parse user payload")
+
+    student = await db.get_student_by_tg_id(user_id)
+    if not student:
+        return {"success": False, "error": "Профіль не знайдено"}
+    doc_id = student['id']
 
     # 2. Витягуємо IP-адресу клієнта з інфраструктури Cloud Run
     x_forwarded_for = request.headers.get("X-Forwarded-For")
@@ -97,24 +103,19 @@ async def process_vision(payload: VisionPayload, request: Request):
 
     # 3. Перевірка 1: GeoIP
     if await is_russian_ip(client_ip):
-        student = await db.get_student_by_tg_id(user_id)
-        if student:
-            await db.update_crm_stage(student['id'], "blocked")
-            await db.clear_user_fsm(user_id)
-        return {"success": False, "error": "Доступ обмежено за регіональними параметрами мережі."}
-
+        await db.update_crm_stage(doc_id, "blocked")
+        await db.clear_user_fsm(user_id)
+        return {"success": False, "error": "Доступ обмежено за регіональними параметрами мережі"}
+    
     # 4. Перевірка 2: Таймзона пристрою
-    if payload.timezone in BLOCKED_TIMEZONES:
-        student = await db.get_student_by_tg_id(user_id)
-        if student:
-            await db.update_crm_stage(student['id'], "blocked")
-            await db.clear_user_fsm(user_id)
-        return {"success": False, "error": "Регіональні параметри пристрою не підтримуються."}
-
+    if timezone in BLOCKED_TIMEZONES:
+        await db.update_crm_stage(doc_id, "blocked")
+        await db.clear_user_fsm(user_id)
+        return {"success": False, "error": "Регіональні параметри пристрою не підтримуються"}
+    
     # 5. Перевірка 3: ШІ-аналіз документа через Gemini Vision
     try:
-        base64_str = payload.image_base64.split(",")[1]
-        image_bytes = base64.b64decode(base64_str)
+        image_bytes = await image.read()
         image_part = Part.from_data(data=image_bytes, mime_type="image/jpeg")
         
         prompt = """Аналізуй цей документ. Поверни суворий JSON:
@@ -135,12 +136,6 @@ async def process_vision(payload: VisionPayload, request: Request):
         # Очищення можливого маркдауну перед парсингом
         clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.IGNORECASE)
         result = json.loads(clean_json)
-        
-        student = await db.get_student_by_tg_id(user_id)
-        if not student:
-            return {"success": False, "error": "Профіль не знайдено"}
-        
-        doc_id = student['id']
 
         # Якщо виявлено російські маркери
         if result.get("has_russian_markers"):
@@ -148,7 +143,7 @@ async def process_vision(payload: VisionPayload, request: Request):
             await db.clear_user_fsm(user_id)
             return {"success": False, "error": "Документ не пройшел перевірку безпеки."}
 
-        # 6. Маршрутизація успішного українського документа
+        # Маршрутизація успішного українського документа
         if result.get("is_ua_document") and result.get("confidence", 0) > 0.6:
             student_data = student['data']
             

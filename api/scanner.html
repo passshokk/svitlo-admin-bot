@@ -1,3 +1,4 @@
+<!-- scanner.html -->
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -101,6 +102,11 @@
             /* border: 2px solid #2481cc; ВИДАЛЕНО, щоб не було некрасивих ліній */
             transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
+
+        /* Пропорції документів */
+        .viewfinder.type-id { width: 85vw; max-width: 420px; aspect-ratio: 1.58 / 1; }
+        .viewfinder.type-passport { width: 85vw; max-width: 420px; aspect-ratio: 1.42 / 1; }
+        .viewfinder.type-cert { width: 75vw; max-width: 380px; aspect-ratio: 1 / 1.41; }
 
         /* 2. Додаємо м'яке світіння (drop-shadow) суто для кутиків */
         .corner {
@@ -239,7 +245,7 @@
 
         // Стейт-машина
         let isCaptured = false;
-        let base64Image = null;
+        let binaryBlob = null;
         let processInterval = null;
         let manualFallbackTimer = null;
 
@@ -290,47 +296,42 @@
             });
         });
 
-        // --- Оптимізований аналізатор (Центральний кроп + Uint32Array) ---
-        function startAnalyzer() {
-            if (processInterval) clearInterval(processInterval);
-            focusFrames = 0;
-            
-            processInterval = setInterval(() => {
-                if (isCaptured || video.readyState !== 4) return;
+        // --- Ініціалізація Web Worker з обробкою CSP обмежень iOS ---
+        let analyzerWorker = null;
+        let isProcessingFrame = false; // Запобіжник переповнення черги (Backpressure)
 
-                const vw = video.videoWidth;
-                const vh = video.videoHeight;
+        try {
+            const workerCode = `
+            let prevGray = null;
+            self.onmessage = function(e) {
+                if (e.data.command === 'reset') {
+                    prevGray = null;
+                    return;
+                }
                 
-                // Кропаємо лише центральний квадрат (зону документа), щоб не аналізувати фон
-                const minDim = Math.min(vw, vh);
-                const cropSize = minDim * 0.7; 
-                const sx = (vw - cropSize) / 2;
-                const sy = (vh - cropSize) / 2;
-
-                procCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, 100, 100);
-                const imgData = procCtx.getImageData(0, 0, 100, 100).data;
-                
+                const imgData = e.data.imgData;
                 let currentGray = new Uint8Array(10000);
                 let motion = 0;
                 let edges = 0;
 
                 for (let i = 0; i < 10000; i++) {
-                    // Швидка конвертація в Ч/Б (без множення float, зсув бітів)
                     const offset = i * 4;
                     currentGray[i] = (imgData[offset] * 3 + imgData[offset+1] * 4 + imgData[offset+2]) >>> 3;
-                    
-                    if (prevGray) {
-                        motion += Math.abs(currentGray[i] - prevGray[i]);
-                    }
-                    if (i % 100 !== 99) {
-                        edges += Math.abs(currentGray[i] - currentGray[i+1]);
-                    }
+                    if (prevGray) motion += Math.abs(currentGray[i] - prevGray[i]);
+                    if (i % 100 !== 99) edges += Math.abs(currentGray[i] - currentGray[i+1]);
                 }
                 
-                motion /= 10000;
-                edges /= 10000;
                 prevGray = currentGray;
+                self.postMessage({ motion: motion / 10000, edges: edges / 10000 });
+            };
+            `;
+            const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+            analyzerWorker = new Worker(URL.createObjectURL(workerBlob));
 
+            analyzerWorker.onmessage = (e) => {
+                isProcessingFrame = false; // Знімаємо лок після успішної обробки
+                
+                const { motion, edges } = e.data;
                 if (motion > MOTION_THRESH) {
                     viewfinder.classList.add('status-moving');
                     viewfinder.classList.remove('status-focusing');
@@ -347,7 +348,42 @@
                         focusFrames = 0;
                     }
                 }
-            }, 150); // Знижено частоту до ~6 FPS для економії батареї
+            };
+        } catch (err) {
+            console.error("Web Worker заблоковано CSP або не підтримується:", err);
+            // Негайно активуємо ручний режим замість блокування UI на 6 секунд
+            setTimeout(() => {
+                clearInterval(processInterval);
+                clearTimeout(manualFallbackTimer);
+                viewfinder.classList.remove('status-moving', 'status-focusing');
+                manualSnapBtn.style.display = 'block';
+                hintText.innerText = "Автофокус недоступний. Зроби фото вручну";
+            }, 200);
+        }
+
+        // --- Оптимізований аналізатор (ЄДИНИЙ ЕКЗЕМПЛЯР ФУНКЦІЇ) ---
+        function startAnalyzer() {
+            if (processInterval) clearInterval(processInterval);
+            focusFrames = 0;
+            isProcessingFrame = false;
+            
+            processInterval = setInterval(() => {
+                // Блокуємо відправку, якщо Worker ще рахує попередній кадр або відео не готове
+                if (isCaptured || video.readyState !== 4 || isProcessingFrame || !analyzerWorker) return;
+
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                const minDim = Math.min(vw, vh);
+                const cropSize = minDim * 0.7; 
+                const sx = (vw - cropSize) / 2;
+                const sy = (vh - cropSize) / 2;
+
+                procCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, 100, 100);
+                const imgData = procCtx.getImageData(0, 0, 100, 100).data;
+                
+                isProcessingFrame = true; // Лочимо потік до відповіді від Worker
+                analyzerWorker.postMessage({ imgData: imgData });
+            }, 100); // Можна безпечно зменшити до 100мс (10 FPS), оскільки UI більше не блокується
         }
 
         // --- Запасний таймер (Fallback) ---
@@ -387,7 +423,7 @@
             const ctx = snapCanvas.getContext('2d');
             ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
             
-            base64Image = snapCanvas.toDataURL('image/jpeg', 0.6);
+            snapCanvas.toBlob((blob) => { binaryBlob = blob; }, 'image/jpeg', 0.6);
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             
             video.style.display = 'none';
@@ -406,7 +442,11 @@
         // --- Скидання UI до початкового стану ---
         function resetScanner() {
             isCaptured = false;
-            base64Image = null;
+            binaryBlob = null;
+            focusFrames = 0; // Скидаємо локальний лічильник
+    
+            // Скидаємо масив попереднього кадру у воркері
+            analyzerWorker.postMessage({ command: 'reset' });
             
             // Повертаємо камеру та скануючий інтерфейс
             snapCanvas.style.display = 'none';
@@ -436,16 +476,15 @@
             tg.MainButton.disable();
 
             const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const formData = new FormData();
+            formData.append('image', binaryBlob, 'doc.jpg');
+            formData.append('init_data', tg.initData);
+            formData.append('timezone', userTimezone);
 
             try {
                 const response = await fetch('/api/vision', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        image_base64: base64Image,
-                        init_data: tg.initData,
-                        timezone: userTimezone
-                    })
+                    body: formData // Зверни увагу: Content-Type видалено, браузер встановить його сам (з boundary)
                 });
 
                 const result = await response.json();
