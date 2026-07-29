@@ -19,7 +19,7 @@
 
             --accent-color: #2481cc;
             --success-color: var(--brand-sage);
-            --warning-color: var(--brand-red);
+            --warning-color: var(--brand-gold);
             --bg-color: #000000;
 
             --safe-top: env(safe-area-inset-top, 0px);
@@ -174,7 +174,7 @@
         /* Стани аналізатора — колір лише на кутиках, без суцільних рамок */
         .viewfinder.status-moving .corner {
             border-color: var(--warning-color);
-            filter: drop-shadow(0 0 5px rgba(145, 38, 39, 0.6));
+            filter: drop-shadow(0 0 5px rgba(220, 175, 66, 0.6));
         }
 
         .viewfinder.status-focusing .corner {
@@ -455,12 +455,18 @@
 
         // ============ Камера ============
         async function initCamera() {
-            // Портретна орієнтація стріму — принципово.
-            // При 1920x1080 у портретному вікні object-fit:cover ріже боки, і на рамку
-            // документа лишається ~480px по ширині. Портретний 1080x1920 дає ~860px.
+            // Портретна орієнтація стріму — принципово (детальніше в коментарі
+            // нижче). Але 1080x1920 (9:16) — це вужчий кадр, ніж рідний FOV
+            // камери (штатний Camera-додаток стартує з 4:3/3:4 на 1x). Safari
+            // не дає керувати оптичним зумом через getUserMedia (це нестандартне
+            // розширення, є лише в Chromium), тому єдиний важіль тут — сам запит
+            // роздільності: чим вужче співвідношення сторін просимо, тим сильніше
+            // система заздалегідь обрізає сенсор, і це виглядає як "зум".
+            // 1440x1920 (3:4) ближче до нативного 1x і не зменшує FOV зайвий раз —
+            // фінальну обрізку під екран все одно робить object-fit:cover.
             const attempts = [
-                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1080 }, height: { ideal: 1920 } }, audio: false },
-                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
+                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false },
                 { video: { facingMode: "environment" }, audio: false },
                 { video: true, audio: false }
             ];
@@ -635,7 +641,7 @@
                     badStreak = 0;
                     viewfinder.classList.remove('status-moving');
                     viewfinder.classList.add('status-focusing');
-                    setHint("Тримай так — знімаю");
+                    setHint("Тримай так — скануємо");
                     focusFrames++;
                     focusProgress.style.width = Math.min(100, (focusFrames / FRAMES_TO_FREEZE) * 100) + '%';
                     if (focusFrames >= FRAMES_TO_FREEZE) captureFrame();
