@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from bot.handlers import tg_router
 from bot.middleware import LoadDataMiddleware
+from core import utils as ut
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -28,7 +29,8 @@ async def main():
     dp.update.outer_middleware(LoadDataMiddleware())
     
     dp.include_router(tg_router)
-    
+
+    await ut.setup_owner_commands(bot)
     print("🤖 Бот запущено локально!")
     
     await bot.delete_webhook(drop_pending_updates=True)

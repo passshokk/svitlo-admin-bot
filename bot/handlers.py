@@ -65,27 +65,26 @@ tg_router.include_router(fallback_router)
 # endregion =====================================================
 # region ADMIN: Dev Access Management
 # ===============================================================
-# /adddev, /removedev: дев кидає юзера через нативний пікер Telegram (без потреби мати його в контактах),
-# бот дістає tg_id і одразу пише/видаляє в Firestore (core.database.add_dev_id/remove_dev_id).
+# /adddev, /removedev: дев кидає юзера через нативний пікер Telegram (без потреби мати його в контактах)
 
 _DEV_ADD_REQUEST_ID = 1001
 _DEV_REMOVE_REQUEST_ID = 1002
 
-@dev_router.message(Command("adddev"))
+@dev_router.message(Command("adddev"), F.from_user.id == cfg.OWNER_ID)
 async def cmd_add_dev(message: Message):
     await message.answer(
         "Обери користувача, якого зробити розробником:",
         reply_markup=kb.get_user_picker_kb(_DEV_ADD_REQUEST_ID)
     )
 
-@dev_router.message(Command("removedev"))
+@dev_router.message(Command("removedev"), F.from_user.id == cfg.OWNER_ID)
 async def cmd_remove_dev(message: Message):
     await message.answer(
         "Обери користувача, якого прибрати зі списку розробників:",
         reply_markup=kb.get_user_picker_kb(_DEV_REMOVE_REQUEST_ID)
     )
 
-@dev_router.message(F.users_shared)
+@dev_router.message(F.users_shared, F.from_user.id == cfg.OWNER_ID)
 async def handle_dev_user_shared(message: Message):
     shared = message.users_shared
     target = shared.users[0]
@@ -96,8 +95,6 @@ async def handle_dev_user_shared(message: Message):
     elif shared.request_id == _DEV_REMOVE_REQUEST_ID:
         await db.remove_dev_id(target.user_id)
         await message.answer(f"🗑️ Прибрано з розробників: <code>{target.user_id}</code>", reply_markup=ReplyKeyboardRemove())
-
-# endregion
 
 # endregion =====================================================
 # region COMMANDS
@@ -808,7 +805,7 @@ async def curator_reply_handler(message: Message):
 
 @fallback_router.message(
     F.chat.type == "private",
-    F.text.in_(["❌ Скасувати", "🔙 Назад у меню"])
+    F.text.in_(["❌ Скасувати", "🔙 Назад у меню", "Скасувати", "скасувати"])
 )
 async def cleanup_zombie_cancel_button(message: Message):
     """Прибирає застарілу кнопку з екрана, якщо FSM стан вже None"""

@@ -9,6 +9,7 @@ from bot.handlers import tg_router
 from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware
 from api.webapp_routes import webapp_router
+from core import utils as ut
 
 # === БЛОК ЛОГУВАННЯ ===
 # Залишаємо INFO як базовий рівень для кастомних логів
@@ -28,6 +29,7 @@ dp.include_router(tg_router)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ut.setup_owner_commands(bot)
     logging.info("Svitlo Bot backend started")
     yield
     # Безпечне закриття сесії aiohttp при шатдауні контейнера

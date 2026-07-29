@@ -13,6 +13,7 @@ HOUSE_CHATS = {
 CURATOR_GROUP_ID = -1004393635348
 ADMIN_GROUP_ID = -5437292784
 # DEV_IDS перенесено в Firestore: Config/bot_settings.dev_ids (core.database.get_dev_ids/add_dev_id/remove_dev_id)
+OWNER_ID = 1125108435  # єдиний, кому доступні /adddev, /removedev
 
 MAIN_CURATOR_USERNAME = "@passshokk"
 

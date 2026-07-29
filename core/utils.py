@@ -3,6 +3,7 @@ import os
 from zoneinfo import ZoneInfo
 import httpx
 import re
+from aiogram.types import BotCommand, BotCommandScopeChat
 
 from core import config as cfg
 
@@ -165,4 +166,18 @@ async def export_to_notion(ticket_data: dict):
             print(f"✅ Тікет {ticket_data['ticket_id']} успішно експортовано в Notion!")
         except Exception as e:
             print(f"❌ Помилка експорту в Notion: {e}")
+
+# endregion ==========================================================================
+# region Bot Commands Menu
+# ====================================================================================
+
+async def setup_owner_commands(bot) -> None:
+    """Додає /adddev, /removedev у меню "/" лише в чаті власника (cfg.OWNER_ID), поверх його звичайних команд.
+    Інші розробники їх у меню не бачать (хоча самі команди все одно захищені фільтром на рівні хендлера)."""
+    default_commands = await bot.get_my_commands()
+    owner_commands = default_commands + [
+        BotCommand(command="adddev", description="➕ Додати розробника"),
+        BotCommand(command="removedev", description="➖ Прибрати розробника"),
+    ]
+    await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=cfg.OWNER_ID))
 
