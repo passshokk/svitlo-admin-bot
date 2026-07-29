@@ -377,7 +377,7 @@
 
         <div class="action-bar">
             <button id="manual-snap-btn" aria-label="Зробити фото"></button>
-            <button id="retake-btn">Перезняти</button>
+            <button id="retake-btn">🔄 Перезняти</button>
         </div>
 
         <div id="flash"></div>
@@ -453,17 +453,43 @@
             return btn ? btn.getAttribute('data-type') : 'type-id';
         }
 
+        // ============ Вибір фізичної камери (без "віртуальних" мультилінзових) ============
+        // На iPhone з кількома задніми об'єктивами facingMode:"environment" часто
+        // резолвиться в "віртуальний" Dual/Triple Camera пристрій, чий дефолтний
+        // zoom НЕ відповідає тому, що нативний Camera-додаток показує як "1x" —
+        // тому кадр виглядає сильно наближеним. Керувати зумом через getUserMedia
+        // constraints надійного способу немає (підтверджено відкритим тікетом
+        // Apple/WebKit — https://developer.apple.com/forums/thread/776460,
+        // https://bugs.webkit.org/show_bug.cgi?id=253186). Єдиний робочий обхід —
+        // обрати конкретний фізичний об'єктив по deviceId/label напряму.
+        async function pickPlainWideBackCameraId() {
+            let devices;
+            try {
+                devices = await navigator.mediaDevices.enumerateDevices();
+            } catch (e) {
+                return null;
+            }
+
+            const backCams = devices.filter(d =>
+                d.kind === 'videoinput' && d.label && !/front|user|selfie|face/i.test(d.label)
+            );
+            if (backCams.length < 2) return null; // лейблів/вибору немає — лишаємось на тому, що вже працює
+
+            const isComposite = (label) => /dual|triple|fusion/i.test(label);
+            const isUltraOrTele = (label) => /ultra|tele/i.test(label);
+
+            const preferred =
+                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label) && /wide/i.test(d.label)) ||
+                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label));
+
+            return preferred ? preferred.deviceId : null;
+        }
+
         // ============ Камера ============
         async function initCamera() {
-            // Портретна орієнтація стріму — принципово (детальніше в коментарі
-            // нижче). Але 1080x1920 (9:16) — це вужчий кадр, ніж рідний FOV
-            // камери (штатний Camera-додаток стартує з 4:3/3:4 на 1x). Safari
-            // не дає керувати оптичним зумом через getUserMedia (це нестандартне
-            // розширення, є лише в Chromium), тому єдиний важіль тут — сам запит
-            // роздільності: чим вужче співвідношення сторін просимо, тим сильніше
-            // система заздалегідь обрізає сенсор, і це виглядає як "зум".
-            // 1440x1920 (3:4) ближче до нативного 1x і не зменшує FOV зайвий раз —
-            // фінальну обрізку під екран все одно робить object-fit:cover.
+            // Портретна орієнтація стріму — принципово. 1440x1920 (3:4) ближче
+            // до нативного FOV камери, ніж 9:16 — фінальну обрізку під екран
+            // все одно робить object-fit:cover.
             const attempts = [
                 { video: { facingMode: { ideal: "environment" }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
                 { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false },
@@ -482,6 +508,21 @@
                 setHint("Немає доступу до камери");
                 tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
                 return;
+            }
+
+            // Тепер, коли дозвіл вже надано, enumerateDevices() повертає лейбли —
+            // можна прицільно перепідключитись на звичайний (не віртуальний) Wide-об'єктив.
+            const preferredId = await pickPlainWideBackCameraId();
+            const activeSettings = mediaStream.getVideoTracks()[0].getSettings();
+            if (preferredId && preferredId !== activeSettings.deviceId) {
+                try {
+                    const refinedStream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: preferredId }, width: { ideal: 1440 }, height: { ideal: 1920 } },
+                        audio: false
+                    });
+                    mediaStream.getTracks().forEach(t => t.stop());
+                    mediaStream = refinedStream;
+                } catch (e) { /* лишаємось на початковому стрімі */ }
             }
 
             video.srcObject = mediaStream;
@@ -800,7 +841,7 @@
 
             document.body.classList.remove('state-manual');
             document.body.classList.add('state-preview');
-            setHint("Перевір, чи чітко читається текст");
+            setHint("перевір, чи чітко читається текст");
             positionHint();
 
             tg.MainButton.setText("✅ ПЕРЕВІРИТИ ДОКУМЕНТ");
