@@ -19,11 +19,11 @@ from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
 from bot.reg_funnel import reg_router
-from bot.filters import ActiveTicketFilter
+from bot.filters import ActiveTicketFilter, IsDevFilter
 
 # region ROUTER --------------------------------
 
-javis = Router()
+dev_router = Router()
 private_router = Router()
 public_router = Router()
 fallback_router = Router()
@@ -34,8 +34,8 @@ public_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURA
 private_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 # Фільтр: пускати в dev_router ТІЛЬКИ розробників
-javis.message.filter(F.from_user.id.in_(cfg.DEV_IDS), F.chat.type == "private")
-javis.callback_query.filter(F.from_user.id.in_(cfg.DEV_IDS), F.message.chat.type == "private")
+dev_router.message.filter(IsDevFilter(), F.chat.type == "private")
+dev_router.callback_query.filter(IsDevFilter(), F.message.chat.type == "private")
 
 private_router.message.middleware(RequireAuthMiddleware())
 private_router.callback_query.middleware(RequireAuthMiddleware())
@@ -44,7 +44,7 @@ private_router.callback_query.middleware(RequireAuthMiddleware())
 tg_router = Router()
 
 #1. Розробницький роутер (для тестів)
-tg_router.include_router(javis)
+tg_router.include_router(dev_router)
 
 # 2. Воронка реєстрації - поки на тесті
 tg_router.include_router(reg_router)
@@ -61,6 +61,43 @@ tg_router.include_router(support_router)
 # 6. СТРОГО ОСТАННІМ: Фолбеки (невідомі команди, незрозумілий текст)
 tg_router.include_router(fallback_router)
 
+
+# endregion =====================================================
+# region ADMIN: Dev Access Management
+# ===============================================================
+# /adddev, /removedev: дев кидає юзера через нативний пікер Telegram (без потреби мати його в контактах),
+# бот дістає tg_id і одразу пише/видаляє в Firestore (core.database.add_dev_id/remove_dev_id).
+
+_DEV_ADD_REQUEST_ID = 1001
+_DEV_REMOVE_REQUEST_ID = 1002
+
+@dev_router.message(Command("adddev"))
+async def cmd_add_dev(message: Message):
+    await message.answer(
+        "Обери користувача, якого зробити розробником:",
+        reply_markup=kb.get_user_picker_kb(_DEV_ADD_REQUEST_ID)
+    )
+
+@dev_router.message(Command("removedev"))
+async def cmd_remove_dev(message: Message):
+    await message.answer(
+        "Обери користувача, якого прибрати зі списку розробників:",
+        reply_markup=kb.get_user_picker_kb(_DEV_REMOVE_REQUEST_ID)
+    )
+
+@dev_router.message(F.users_shared)
+async def handle_dev_user_shared(message: Message):
+    shared = message.users_shared
+    target = shared.users[0]
+
+    if shared.request_id == _DEV_ADD_REQUEST_ID:
+        await db.add_dev_id(target.user_id)
+        await message.answer(f"✅ Додано розробника: <code>{target.user_id}</code>", reply_markup=ReplyKeyboardRemove())
+    elif shared.request_id == _DEV_REMOVE_REQUEST_ID:
+        await db.remove_dev_id(target.user_id)
+        await message.answer(f"🗑️ Прибрано з розробників: <code>{target.user_id}</code>", reply_markup=ReplyKeyboardRemove())
+
+# endregion
 
 # endregion =====================================================
 # region COMMANDS

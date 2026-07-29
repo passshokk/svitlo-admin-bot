@@ -3,6 +3,7 @@ import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 import uuid
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from google.api_core.exceptions import AlreadyExists
@@ -279,8 +280,48 @@ async def clear_user_fsm(user_id: int | str):
 async def set_user_fsm_state(user_id: int | str, state_str: str):
     """Ізольоване встановлення стейту FSM."""
     await db.collection("FSM_Sessions").document(str(user_id)).set(
-        {"state": state_str}, 
+        {"state": state_str},
         merge=True
     )
+
+# endregion
+
+# ==========================
+# region --- Dev Access Control
+
+_DEV_IDS_DOC = ("Config", "bot_settings")
+_DEV_IDS_TTL = 60 # секунд
+
+_dev_ids_cache: set[int] | None = None
+_dev_ids_cache_ts: float = 0.0
+
+async def get_dev_ids() -> set[int]:
+    """Повертає telegram ID розробників з Firestore (з кешем на 60с, щоб не бити БД на кожне повідомлення)."""
+    global _dev_ids_cache, _dev_ids_cache_ts
+    now = time.monotonic()
+    if _dev_ids_cache is not None and (now - _dev_ids_cache_ts) < _DEV_IDS_TTL:
+        return _dev_ids_cache
+
+    doc = await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).get()
+    ids = doc.to_dict().get("dev_ids", []) if doc.exists else []
+    _dev_ids_cache = set(ids)
+    _dev_ids_cache_ts = now
+    return _dev_ids_cache
+
+async def add_dev_id(tg_id: int):
+    """Додає telegram ID до списку розробників. Діє одразу, без редеплою коду."""
+    global _dev_ids_cache
+    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).set(
+        {"dev_ids": firestore.ArrayUnion([tg_id])}, merge=True
+    )
+    _dev_ids_cache = None
+
+async def remove_dev_id(tg_id: int):
+    """Прибирає telegram ID зі списку розробників."""
+    global _dev_ids_cache
+    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).set(
+        {"dev_ids": firestore.ArrayRemove([tg_id])}, merge=True
+    )
+    _dev_ids_cache = None
 
 # endregion

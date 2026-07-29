@@ -1,5 +1,5 @@
 # bot/keyboards.py
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, Message
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, Message, KeyboardButtonRequestUsers
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types.web_app_info import WebAppInfo
 import os
@@ -285,3 +285,15 @@ def get_nps_kb(ticket_id: str) -> InlineKeyboardMarkup:
 
 # endregion
 # ==========================
+# region --- Dev Access Control
+# ==========================
+
+def get_user_picker_kb(request_id: int) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(
+            text="👤 Обрати користувача",
+            request_users=KeyboardButtonRequestUsers(request_id=request_id, max_quantity=1, user_is_bot=False)
+        )]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )

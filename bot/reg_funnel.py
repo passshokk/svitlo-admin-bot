@@ -14,11 +14,12 @@ from core import utils as ut
 from bot.states import Registration
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
-from core.config import DEV_IDS, PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
+from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
+from bot.filters import IsDevFilter
 
 reg_router = Router()
-reg_router.message.filter(F.from_user.id.in_(DEV_IDS), F.chat.type == "private")
-reg_router.callback_query.filter(F.from_user.id.in_(DEV_IDS), F.message.chat.type == "private")
+reg_router.message.filter(IsDevFilter(), F.chat.type == "private")
+reg_router.callback_query.filter(IsDevFilter(), F.message.chat.type == "private")
 
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---

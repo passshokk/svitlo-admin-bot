@@ -1,7 +1,13 @@
 from aiogram.filters import BaseFilter
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from core import database as db
+
+class IsDevFilter(BaseFilter):
+    """Пускає лише розробників. Список ID тягнеться з Firestore (Config/bot_settings.dev_ids),
+    тож додавання нового дева не потребує редеплою коду."""
+    async def __call__(self, event: Message | CallbackQuery) -> bool:
+        return event.from_user.id in await db.get_dev_ids()
 
 class ActiveTicketFilter(BaseFilter):
     async def __call__(self, message: Message, state: FSMContext) -> bool | dict:
