@@ -54,16 +54,25 @@
             overflow: hidden;
         }
 
+        /* iPhone віддає камеру у своєму нативному 4:3 (напр. 1920x1440),
+           а не в тому портретному співвідношенні, яке ми просимо в getUserMedia —
+           це підтверджено реальними замірами на пристроях, а не припущенням.
+           Тому #camera-frame рахуємо в JS під РЕАЛЬНі videoWidth/videoHeight
+           і центруємо на екрані. Відео всередині рамки завжди точно збігається
+           з нею за пропорціями — жодного обрізання чи порожніх полів. */
+        #camera-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            overflow: hidden;
+        }
+
         video {
             position: absolute;
             inset: 0;
             width: 100%;
             height: 100%;
-            /* contain, а не cover: на дуже високих екранах (напр. 9:19.5)
-               cover масштабує відео під висоту і зрізає боки — саме це і
-               виглядало як зайвий зум поверх того, що вже дає камера.
-               Порожні поля зверху/знизу зливаються з чорним тлом маски. */
-            object-fit: contain;
+            object-fit: cover;
             transition: filter .25s ease;
         }
 
@@ -158,9 +167,12 @@
             margin-top: calc(var(--safe-top) / 2);
         }
 
-        .viewfinder.type-id       { width: 88vw; max-width: 440px; aspect-ratio: 1.58 / 1; }
-        .viewfinder.type-passport { width: 88vw; max-width: 440px; aspect-ratio: 1.42 / 1; }
-        .viewfinder.type-cert     { width: 74vw; max-width: 380px; aspect-ratio: 1 / 1.41; }
+        /* % від #camera-frame, не vw від екрана — рамка тепер може бути вужчою
+           за екран (якщо відео ширше за екран пропорційно, JS покаже це
+           по висоті), і viewfinder має підлаштовуватись під неї, а не під весь viewport. */
+        .viewfinder.type-id       { width: 88%; max-width: 440px; aspect-ratio: 1.58 / 1; }
+        .viewfinder.type-passport { width: 88%; max-width: 440px; aspect-ratio: 1.42 / 1; }
+        .viewfinder.type-cert     { width: 74%; max-width: 380px; aspect-ratio: 1 / 1.41; }
 
         .corner {
             position: absolute;
@@ -354,7 +366,19 @@
 <body>
 
     <div id="scanner-container">
-        <video id="camera" autoplay playsinline muted></video>
+        <div id="camera-frame">
+            <video id="camera" autoplay playsinline muted></video>
+
+            <div class="overlay-mask">
+                <div class="viewfinder type-id" id="viewfinder">
+                    <div class="corner top-left"></div>
+                    <div class="corner top-right"></div>
+                    <div class="corner bottom-left"></div>
+                    <div class="corner bottom-right"></div>
+                    <div class="focus-bar"><i id="focus-progress"></i></div>
+                </div>
+            </div>
+        </div>
 
         <div class="top-bar">
             <div class="segment-control">
@@ -363,16 +387,6 @@
                 <button class="segment-btn" data-type="type-cert">Свідоцтво</button>
             </div>
             <button class="icon-btn" id="torch-btn" aria-label="Ліхтарик">🔦</button>
-        </div>
-
-        <div class="overlay-mask">
-            <div class="viewfinder type-id" id="viewfinder">
-                <div class="corner top-left"></div>
-                <div class="corner top-right"></div>
-                <div class="corner bottom-left"></div>
-                <div class="corner bottom-right"></div>
-                <div class="focus-bar"><i id="focus-progress"></i></div>
-            </div>
         </div>
 
         <canvas id="snapshot-canvas"></canvas>
@@ -404,6 +418,7 @@
 
         // --- DOM ---
         const video        = document.getElementById('camera');
+        const cameraFrame  = document.getElementById('camera-frame');
         const viewfinder   = document.getElementById('viewfinder');
         const hintText     = document.getElementById('hint-text');
         const manualBtn    = document.getElementById('manual-snap-btn');
@@ -457,12 +472,39 @@
             return btn ? btn.getAttribute('data-type') : 'type-id';
         }
 
+        // ============ Розмір камери під реальні пропорції відео ============
+        // Заміряно на реальних пристроях (iPhone 13/15): попри запит портретних
+        // width/height, камера завжди віддає свій нативний 4:3 landscape-буфер
+        // (напр. 1920x1440) — це не помилка в constraints, а те, як iOS
+        // капчурить кадр. Тому #camera-frame рахуємо в JS під РЕАЛЬНІ
+        // videoWidth/videoHeight (а не гадаємо в CSS) і вписуємо його в екран
+        // максимально великим зі збереженням пропорцій. Відео всередині рамки
+        // завжди точно збігається з нею — ні обрізання (як було з cover),
+        // ні порожніх непередбачуваних полів (як було з голим contain на весь
+        // екран, де маска рахувалась відносно екрана, а не відеоконтенту).
+        function sizeCameraFrame() {
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            if (!vw || !vh) return;
+
+            const availW = window.innerWidth;
+            const availH = window.innerHeight;
+
+            const scale = Math.min(availW / vw, availH / vh);
+            const frameW = Math.round(vw * scale);
+            const frameH = Math.round(vh * scale);
+
+            cameraFrame.style.width  = frameW + 'px';
+            cameraFrame.style.height = frameH + 'px';
+            cameraFrame.style.transform = 'translate(-50%, -50%)';
+
+            positionHint();
+        }
+
+        window.addEventListener('resize', sizeCameraFrame);
+
         // ============ Камера ============
         async function initCamera() {
-            // Портретна орієнтація стріму — принципово. 1440x1920 (3:4) ближче
-            // до нативного FOV камери, ніж 9:16. Відео показуємо через
-            // object-fit:contain, тож зайвого обрізання країв більше немає.
-            //
             // На деяких iPhone facingMode:"environment" резолвиться в
             // "віртуальний" Dual/Triple Camera пристрій, чий дефолтний zoom не
             // відповідає нативному "1x" — кадр виглядає наближеним. Надійного
@@ -500,19 +542,11 @@
 
             video.onloadedmetadata = () => {
                 video.play().catch(() => {});
+                sizeCameraFrame();
                 setHint(HINTS[activeType()]);
                 positionHint();
                 startAnalyzer();
                 startFallbackTimer();
-
-                // ТИМЧАСОВО: показуємо реально узгоджену роздільність стріму,
-                // щоб перевірити, що саме віддає камера на конкретному пристрої.
-                const dbg = document.createElement('div');
-                dbg.textContent = `${video.videoWidth}×${video.videoHeight}`;
-                dbg.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:999;' +
-                    'background:rgba(255,0,0,.75);color:#fff;font-size:13px;' +
-                    'padding:4px 8px;border-radius:6px;font-family:monospace;';
-                document.body.appendChild(dbg);
             };
         }
 
@@ -566,9 +600,11 @@
 
             if (!vw || !vh || !vr.width) return null;
 
-            // Math.min — саме contain: відео вписується цілком, з полями,
-            // а не масштabується під більшу сторону з обрізанням (як для cover).
-            const scale = Math.min(vr.width / vw, vr.height / vh);
+            // #camera-frame вже порахований в sizeCameraFrame() під ці самі
+            // vw/vh з ОДНИМ спільним коефіцієнтом — тобто vr.width/vw і
+            // vr.height/vh тут завжди рівні (з точністю до Math.round),
+            // тож Math.max/Math.min дають однаковий результат.
+            const scale = Math.max(vr.width / vw, vr.height / vh);
             const offX  = (vr.width  - vw * scale) / 2;
             const offY  = (vr.height - vh * scale) / 2;
 
