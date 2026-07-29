@@ -805,7 +805,7 @@ async def curator_reply_handler(message: Message):
 
 @fallback_router.message(
     F.chat.type == "private",
-    F.text.in_(["❌ Скасувати", "🔙 Назад у меню", "Скасувати", "скасувати"])
+    F.text.in_(["❌ Скасувати", "🔙 Назад у меню", "Скасувати", "скасувати", "🚫 Скасувати введення"])
 )
 async def cleanup_zombie_cancel_button(message: Message):
     """Прибирає застарілу кнопку з екрана, якщо FSM стан вже None"""
@@ -829,7 +829,7 @@ async def unknown_command_handler(message: Message):
 
 @fallback_router.message(F.chat.type == "private")
 async def unknown_content_handler(message: Message):
-    await message.answer("Я тебе не зрозумів 🤷\nСкористайся /menu для навігації", reply_markup=None)
+    await message.answer("Я тебе не зрозумів 🤷\nСкористайся /menu для навігації", reply_markup=ReplyKeyboardRemove())
 
 # endregion =====================================================
 # region 

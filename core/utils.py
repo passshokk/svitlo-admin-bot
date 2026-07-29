@@ -175,9 +175,12 @@ async def setup_owner_commands(bot) -> None:
     """Додає /adddev, /removedev у меню "/" лише в чаті власника (cfg.OWNER_ID), поверх його звичайних команд.
     Інші розробники їх у меню не бачать (хоча самі команди все одно захищені фільтром на рівні хендлера)."""
     default_commands = await bot.get_my_commands()
-    owner_commands = default_commands + [
+    owner_commands = [
         BotCommand(command="adddev", description="➕ Додати розробника"),
         BotCommand(command="removedev", description="➖ Прибрати розробника"),
-    ]
+    ] + default_commands
     await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=cfg.OWNER_ID))
 
+# endregion ==========================================================================
+# region 
+# ====================================================================================

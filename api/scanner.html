@@ -59,7 +59,11 @@
             inset: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            /* contain, а не cover: на дуже високих екранах (напр. 9:19.5)
+               cover масштабує відео під висоту і зрізає боки — саме це і
+               виглядало як зайвий зум поверх того, що вже дає камера.
+               Порожні поля зверху/знизу зливаються з чорним тлом маски. */
+            object-fit: contain;
             transition: filter .25s ease;
         }
 
@@ -453,43 +457,23 @@
             return btn ? btn.getAttribute('data-type') : 'type-id';
         }
 
-        // ============ Вибір фізичної камери (без "віртуальних" мультилінзових) ============
-        // На iPhone з кількома задніми об'єктивами facingMode:"environment" часто
-        // резолвиться в "віртуальний" Dual/Triple Camera пристрій, чий дефолтний
-        // zoom НЕ відповідає тому, що нативний Camera-додаток показує як "1x" —
-        // тому кадр виглядає сильно наближеним. Керувати зумом через getUserMedia
-        // constraints надійного способу немає (підтверджено відкритим тікетом
-        // Apple/WebKit — https://developer.apple.com/forums/thread/776460,
-        // https://bugs.webkit.org/show_bug.cgi?id=253186). Єдиний робочий обхід —
-        // обрати конкретний фізичний об'єктив по deviceId/label напряму.
-        async function pickPlainWideBackCameraId() {
-            let devices;
-            try {
-                devices = await navigator.mediaDevices.enumerateDevices();
-            } catch (e) {
-                return null;
-            }
-
-            const backCams = devices.filter(d =>
-                d.kind === 'videoinput' && d.label && !/front|user|selfie|face/i.test(d.label)
-            );
-            if (backCams.length < 2) return null; // лейблів/вибору немає — лишаємось на тому, що вже працює
-
-            const isComposite = (label) => /dual|triple|fusion/i.test(label);
-            const isUltraOrTele = (label) => /ultra|tele/i.test(label);
-
-            const preferred =
-                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label) && /wide/i.test(d.label)) ||
-                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label));
-
-            return preferred ? preferred.deviceId : null;
-        }
-
         // ============ Камера ============
         async function initCamera() {
             // Портретна орієнтація стріму — принципово. 1440x1920 (3:4) ближче
-            // до нативного FOV камери, ніж 9:16 — фінальну обрізку під екран
-            // все одно робить object-fit:cover.
+            // до нативного FOV камери, ніж 9:16. Відео показуємо через
+            // object-fit:contain, тож зайвого обрізання країв більше немає.
+            //
+            // На деяких iPhone facingMode:"environment" резолвиться в
+            // "віртуальний" Dual/Triple Camera пристрій, чий дефолтний zoom не
+            // відповідає нативному "1x" — кадр виглядає наближеним. Надійного
+            // способу примусити конкретний об'єктив через getUserMedia
+            // constraints немає (підтверджено відкритим тікетом Apple/WebKit —
+            // developer.apple.com/forums/thread/776460,
+            // bugs.webkit.org/show_bug.cgi?id=253186). Вибір по deviceId/label
+            // тут навмисно не використовуємо: лейбли камер локалізовані під
+            // мову системи, і матчинг по англійських ключових словах ловив не
+            // той пристрій (на iPhone 15 з українською локаллю зловив
+            // фронтальну камеру). Це платформне обмеження без надійного фіксу.
             const attempts = [
                 { video: { facingMode: { ideal: "environment" }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
                 { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false },
@@ -508,21 +492,6 @@
                 setHint("Немає доступу до камери");
                 tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
                 return;
-            }
-
-            // Тепер, коли дозвіл вже надано, enumerateDevices() повертає лейбли —
-            // можна прицільно перепідключитись на звичайний (не віртуальний) Wide-об'єктив.
-            const preferredId = await pickPlainWideBackCameraId();
-            const activeSettings = mediaStream.getVideoTracks()[0].getSettings();
-            if (preferredId && preferredId !== activeSettings.deviceId) {
-                try {
-                    const refinedStream = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: { exact: preferredId }, width: { ideal: 1440 }, height: { ideal: 1920 } },
-                        audio: false
-                    });
-                    mediaStream.getTracks().forEach(t => t.stop());
-                    mediaStream = refinedStream;
-                } catch (e) { /* лишаємось на початковому стрімі */ }
             }
 
             video.srcObject = mediaStream;
@@ -579,7 +548,7 @@
         }
 
         // ============ Геометрія: рамка -> координати відеокадру ============
-        // Відео рендериться з object-fit: cover, тому потрібен зворотний мапінг.
+        // Відео рендериться з object-fit: contain, тому потрібен зворотний мапінг.
         function getCropRect() {
             const vw = video.videoWidth;
             const vh = video.videoHeight;
@@ -588,7 +557,9 @@
 
             if (!vw || !vh || !vr.width) return null;
 
-            const scale = Math.max(vr.width / vw, vr.height / vh);
+            // Math.min — саме contain: відео вписується цілком, з полями,
+            // а не масштabується під більшу сторону з обрізанням (як для cover).
+            const scale = Math.min(vr.width / vw, vr.height / vh);
             const offX  = (vr.width  - vw * scale) / 2;
             const offY  = (vr.height - vh * scale) / 2;
 
