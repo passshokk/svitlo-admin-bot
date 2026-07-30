@@ -43,8 +43,12 @@ async def grant_access_to_student(doc_id: str, tg_id: int):
 async def link_telegram_id(doc_id: str, tg_id: int):
     await db.collection('Svitlo').document(doc_id).update({'telegramId': tg_id})
 
+async def update_telegram_username(doc_id: str, username: str):
+    """Синхронізує актуальний @username"""
+    await db.collection('Svitlo').document(doc_id).update({'telegramUsername': username})
+
 async def grant_house_access(doc_id: str):
-    """Ставить прапорець, що юзер вже отримав лінк на свій Хаус."""
+    """Ставить прапорець, що юзер вже отримав лінк на свій Хаус"""
     await db.collection('Svitlo').document(doc_id).update({"hasHouseAccess": True})
 
 # endregion
@@ -116,7 +120,6 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "rulesMistakes": 0,
 
         # 🤖 AI Verification
-        "aiDocValid": False,
         "aiDocType": "",
 
         # 🔐 Access & Roles

@@ -26,6 +26,13 @@ class LoadDataMiddleware(BaseMiddleware):
                 # Повертаємо None без виклику handler(), повністю ігноруючи подальші дії
                 return
 
+            # 🔄 Синхронізація @username
+            if student:
+                fresh_username = user.username or ""
+                if student['data'].get('telegramUsername', '') != fresh_username:
+                    await db.update_telegram_username(student['id'], fresh_username)
+                    student['data']['telegramUsername'] = fresh_username
+
             s_token = student_ctx.set(student)
             roles = student['data'].get('roles', []) if student else []
             r_token = user_roles_ctx.set(roles)

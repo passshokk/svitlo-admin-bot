@@ -192,7 +192,6 @@ async def process_vision(
         student_data = student['data']
 
         await firestore_client.collection('Svitlo').document(doc_id).update({
-            "aiDocValid": True,
             "aiDocType": result.get("doc_type", "unknown"),
             "stage": "admin_review",
             "stageUpdatedAt": db.get_kyivtime_now()
