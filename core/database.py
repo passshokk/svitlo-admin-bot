@@ -133,10 +133,11 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     while True:
         custom_doc_id = generate_svitlo_id()
         doc_ref = db.collection('Svitlo').document(custom_doc_id)
-        
+
         try:
             # .create() атомарно створить документ АБО викине помилку AlreadyExists
             await doc_ref.create(payload)
+            await _log_stage_event(custom_doc_id, "lead", now)
             return custom_doc_id
         except AlreadyExists:
             # У разі колізії цикл одразу генерує новий ID та повторює спробу
@@ -169,23 +170,36 @@ async def save_lead_profile(doc_id: str, data: dict, next_stage: str):
         "leadSource": data.get("leadSource", ""),
         "hasHealthIssues": data.get("hasHealthIssues", False),
         "healthIssuesDetails": data.get("healthIssuesDetails", ""),
-
-        "stage": next_stage,
-        "stageUpdatedAt": get_kyivtime_now()
     }
     await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
-    # Видаляємо пусті ключі, щоб не перезаписати випадково існуючі None/дефолти
-    # clean_payload = {k: v for k, v in payload.items() if v != ""}
-    # await db.collection('Svitlo').document(doc_id).set(clean_payload, merge=True)
+    await update_crm_stage(doc_id, next_stage)
+
+async def _log_stage_event(doc_id: str, stage: str, at):
+    """
+    Пише append-only подію переходу стадії в `StageEvents`.
+
+    `Svitlo.stage`/`stageUpdatedAt` зберігають лише ПОТОЧНИЙ стан (перезаписуються),
+    тому без окремого логу неможливо порахувати funnel-конверсію в часі
+    (напр. "скільки лідів відвалилось на квізі правил у червні"). Ця колекція —
+    єдине джерело історії для майбутньої аналітики/CRM.
+    """
+    await db.collection('StageEvents').document().set({
+        "studentId": doc_id,
+        "stage": stage,
+        "at": at
+    })
 
 async def update_crm_stage(doc_id: str, next_stage: str):
     """
-    Оновлює в `Svitlo` timestamp останньої активності юзера.
+    Оновлює в `Svitlo` поточну стадію та timestamp останньої активності юзера,
+    і логує сам перехід у `StageEvents`.
     """
+    now = get_kyivtime_now()
     await db.collection('Svitlo').document(doc_id).update({
-        "stageUpdatedAt": get_kyivtime_now(),
+        "stageUpdatedAt": now,
         "stage": next_stage
     })
+    await _log_stage_event(doc_id, next_stage, now)
 
 async def increment_rules_mistake(doc_id: str):
     """Атомарно інкрементує лічильник неправильних відповідей у квізі правил."""

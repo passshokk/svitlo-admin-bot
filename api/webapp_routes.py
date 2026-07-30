@@ -193,9 +193,8 @@ async def process_vision(
 
         await firestore_client.collection('Svitlo').document(doc_id).update({
             "aiDocType": result.get("doc_type", "unknown"),
-            "stage": "admin_review",
-            "stageUpdatedAt": db.get_kyivtime_now()
         })
+        await db.update_crm_stage(doc_id, "admin_review")
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
 
         # Server-Side Push: Сповіщаємо юзера про успіх

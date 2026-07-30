@@ -702,10 +702,9 @@ async def admin_approve_lead(callback: CallbackQuery):
     
     # 1. Оновлюємо статус в БД на 'student'
     await firestore_client.collection('Svitlo').document(doc_id).update({
-        "stage": "student",
-        "stageUpdatedAt": db.get_kyivtime_now(),
         "roles": ["student"] # Надаємо базову роль
     })
+    await db.update_crm_stage(doc_id, "student")
 
     
     # 2. Оновлюємо інтерфейс куратора
