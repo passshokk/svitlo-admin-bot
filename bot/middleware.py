@@ -75,7 +75,7 @@ class RequireAuthMiddleware(BaseMiddleware):
         await state.set_state(Registration.waiting_email)
 
         trigger = event.data if isinstance(event, CallbackQuery) else getattr(event, "text", None)
-        await state.update_data(email_flow_source="middleware_auto_prompt", triggered_by=trigger)
+        await state.update_data(emailFlowSource="middleware_auto_prompt", triggeredBy=trigger)
 
         text_1 = "<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>"
         text_2 = "Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:"

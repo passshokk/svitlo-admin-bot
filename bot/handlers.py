@@ -179,7 +179,7 @@ async def reg_for_access(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.answer()
     await state.set_state(Registration.waiting_email)
-    await state.update_data(email_flow_source="get_gengroup_access_btn")
+    await state.update_data(emailFlowSource="get_gengroup_access_btn")
     await callback.message.edit_text("🔐 <b>Процес отримання доступу до групи</b>")
     await callback.message.answer(
         "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації в SvitloSchool:",
@@ -195,7 +195,7 @@ async def verify_for_access(callback: CallbackQuery, state: FSMContext):
     # 1. Юзера взагалі немає в БД (старий зі SchoolToday) -> Відправляємо на лінковку
     if not student:
         await state.set_state(Registration.waiting_email)
-        await state.update_data(email_flow_source="verify_btn_no_student")
+        await state.update_data(emailFlowSource="verify_btn_no_student")
         await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>")
         await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
         return

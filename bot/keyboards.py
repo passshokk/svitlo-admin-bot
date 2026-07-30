@@ -62,16 +62,16 @@ def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
 
 def get_data_confirmation_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Все правильно, йдемо далі", callback_data="confirm_data_success")
-    builder.button(text="✍️ Змінити певні дані", callback_data="confirm_data_edit")
+    builder.button(text="✅ Все правильно, йдемо далі", callback_data="confirm_data_success", style="success")
+    builder.button(text="✍️ Змінити певні дані", callback_data="confirm_data_edit", style="primary")
     builder.adjust(1)
     return builder.as_markup()
 
 def get_edit_fields_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="👤 Ім'я", callback_data="edit_field:first_name")
-    builder.button(text="👤 Прізвище", callback_data="edit_field:last_name")
-    builder.button(text="📅 ДН", callback_data="edit_field:dob")
+    builder.button(text="👤 Ім'я", callback_data="edit_field:firstName")
+    builder.button(text="👤 Прізвище", callback_data="edit_field:lastName")
+    builder.button(text="📅 ДН", callback_data="edit_field:birthDate")
     builder.button(text="📧 Email", callback_data="edit_field:email")
     builder.button(text="🌍 Країна", callback_data="edit_field:country")
     builder.button(text="📍 Місто", callback_data="edit_field:city")

@@ -26,6 +26,7 @@ class Registration(StatesGroup):
     entering_parent_phone = State()
 
     entering_lead_source = State()
+    entering_lead_source_details = State()
     entering_health_bool = State()
     entering_health_details = State()
 

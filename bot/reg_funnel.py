@@ -15,11 +15,13 @@ from bot.states import Registration
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
 from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
+from core import config as cfg
 from bot.filters import IsDevFilter
 
 reg_router = Router()
-reg_router.message.filter(IsDevFilter(), F.chat.type == "private")
-reg_router.callback_query.filter(IsDevFilter(), F.message.chat.type == "private")
+# Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID
+reg_router.message.filter(IsDevFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
+reg_router.callback_query.filter(IsDevFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
 
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---
@@ -52,7 +54,7 @@ async def cmd_start(message: Message, state: FSMContext):
 async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(Registration.waiting_email)
-    await state.update_data(email_flow_source="guest_menu_auth_existing")
+    await state.update_data(emailFlowSource="guest_menu_auth_existing")
     await callback.message.edit_text("🔐 <b>Синхронізація акаунта</b>")
     await callback.message.answer("Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 #endregion -----------------------------------------------------
@@ -106,7 +108,7 @@ async def process_first_name(message: Message, state: FSMContext):
         await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
         return
         
-    await state.update_data(first_name=first_name)
+    await state.update_data(firstName=first_name)
     await state.set_state(Registration.entering_last_name)
     await message.answer(f"Thanks {first_name}!\n"
                          "Яке твоє <b>прізвище</b> (англійською)?")
@@ -119,9 +121,9 @@ async def process_last_name(message: Message, state: FSMContext):
         await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
         return
         
-    await state.update_data(last_name=last_name)
+    await state.update_data(lastName=last_name)
     data = await state.get_data()
-    full_name = f"{data.get('first_name', '')} {last_name}"
+    full_name = f"{data.get('firstName', '')} {last_name}"
     
     await state.set_state(Registration.entering_gender)
     await message.answer(
@@ -168,7 +170,7 @@ async def process_dob(message: Message, state: FSMContext):
         dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
         
         # Тепер в FSM лежить нативний об'єкт datetime
-        await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
+        await state.update_data(birthDate=dob_timestamp, ageGroup=age_group)
         await state.set_state(Registration.entering_email)
         await message.answer("Чудово! 😊\n"
                              "Тепер перейдімо до твоїх контактних даних")
@@ -270,14 +272,14 @@ async def process_city(message: Message, state: FSMContext):
 async def process_displaced_status(message: Message, state: FSMContext):
     text = message.text.strip().lower()
     if text == "так":
-        await state.update_data(is_displaced=True)
+        await state.update_data(isDisplaced=True)
         await state.set_state(Registration.entering_displaced_region)
         await message.answer(
             "<b>З якої області України ти переїхав(-ла)?</b>",
             reply_markup=ReplyKeyboardRemove()
         )
     elif text == "ні":
-        await state.update_data(is_displaced=False, displaced_region="")
+        await state.update_data(isDisplaced=False, displacedRegion="")
         await state.set_state(Registration.entering_parent_first_name)
         
         await message.answer(
@@ -291,7 +293,7 @@ async def process_displaced_status(message: Message, state: FSMContext):
 # Область переміщених -> Батьки
 @reg_router.message(Registration.entering_displaced_region, F.text)
 async def process_displaced_region(message: Message, state: FSMContext):
-    await state.update_data(displaced_region=message.text.strip().title())
+    await state.update_data(displacedRegion=message.text.strip().title())
     await state.set_state(Registration.entering_parent_first_name)
     
     await message.answer(
@@ -304,13 +306,13 @@ async def process_displaced_region(message: Message, state: FSMContext):
 # БАТЬКИ (Ім'я -> Прізвище -> Email -> Телефон)
 @reg_router.message(Registration.entering_parent_first_name, F.text)
 async def process_parent_first_name(message: Message, state: FSMContext):
-    await state.update_data(parent_first_name=message.text.strip().title())
+    await state.update_data(parentFirstName=message.text.strip().title())
     await state.set_state(Registration.entering_parent_last_name)
     await message.answer("Вкажи <b>прізвище одного з батьків/опікунів</b>:")
 
 @reg_router.message(Registration.entering_parent_last_name, F.text)
 async def process_parent_last_name(message: Message, state: FSMContext):
-    await state.update_data(parent_last_name=message.text.strip().title())
+    await state.update_data(parentLastName=message.text.strip().title())
     await state.set_state(Registration.entering_parent_email)
     await message.answer("Яка <b>електронна пошта в одного з твоїх батьків/опікунів?</b>")
 
@@ -321,7 +323,7 @@ async def process_parent_email(message: Message, state: FSMContext):
         await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
         return
     
-    await state.update_data(parent_email=email)
+    await state.update_data(parentEmail=email)
     await state.set_state(Registration.entering_parent_phone)
     await message.answer("І який <b>номер телефону в одного з твоїх батьків/опікунів?</b> Вкажи у міжнародному форматі (наприклад, +380...)")
 
@@ -333,7 +335,7 @@ async def process_parent_phone(message: Message, state: FSMContext):
         await message.answer("⚠️ Некоректний формат. Введи номер у міжнародному форматі (+380...):")
         return
         
-    await state.update_data(parent_phone=phone)
+    await state.update_data(parentPhone=phone)
     await state.set_state(Registration.entering_lead_source)
     await message.answer("Дякую! 😊 Залишилось всього 2 запитання, і цей розділ завершено!")
     await message.answer("<b>Звідки ти дізнався(-лась) про Svitlo School?</b> Обери або напиши свій варіант:", 
@@ -343,31 +345,46 @@ async def process_parent_phone(message: Message, state: FSMContext):
 @reg_router.message(Registration.entering_lead_source, F.text)
 async def process_lead_source(message: Message, state: FSMContext):
     lead_source = message.text.strip()
-    await state.update_data(lead_source=lead_source)
-    if lead_source == "Інше":
-        await message.answer("Будь ласка, коротко уточни звідки чи від кого:", reply_markup=ReplyKeyboardRemove())
-    elif lead_source == "Організація":
-        await message.answer("Будь ласка, уточни назву організації:", reply_markup=ReplyKeyboardRemove())   
-    else:
-        await state.set_state(Registration.entering_health_bool)
-        await message.answer("І наостанок: чи є у тебе особливі потреби, пов’язані зі станом здоров’я або інвалідністю, про які нам варто знати для твоєї найкращої підтримки в Svitlo School? Наприклад, медичні застереження, потреби в адаптації матеріалів чи забезпеченні доступності", reply_markup=kb.get_boolean_kb())
+    if lead_source in ("Інше", "Організація"):
+        await state.update_data(leadSourceType=lead_source)
+        await state.set_state(Registration.entering_lead_source_details)
+        if lead_source == "Інше":
+            await message.answer("Будь ласка, коротко уточни звідки чи від кого:", reply_markup=ReplyKeyboardRemove())
+        else:
+            await message.answer("Будь ласка, уточни назву організації:", reply_markup=ReplyKeyboardRemove())
+        return
+
+    await state.update_data(leadSource=lead_source)
+    await state.set_state(Registration.entering_health_bool)
+    await message.answer("І наостанок: чи є у тебе особливі потреби, пов’язані зі станом здоров’я або інвалідністю, про які нам варто знати для твоєї найкращої підтримки в Svitlo School? Наприклад, медичні застереження, потреби в адаптації матеріалів чи забезпеченні доступності", reply_markup=kb.get_boolean_kb())
+
+# ДЖЕРЕЛО ТРАФІКУ (уточнення для "Інше" / "Організація")
+@reg_router.message(Registration.entering_lead_source_details, F.text)
+async def process_lead_source_details(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lead_source_type = data.get("leadSourceType", "Інше")
+    details = message.text.strip()
+
+    await state.update_data(leadSource=f"{lead_source_type}: {details}")
+    await state.set_state(Registration.entering_health_bool)
+    await message.answer("І наостанок: чи є у тебе особливі потреби, пов’язані зі станом здоров’я або інвалідністю, про які нам варто знати для твоєї найкращої підтримки в Svitlo School? Наприклад, медичні застереження, потреби в адаптації матеріалів чи забезпеченні доступності", reply_markup=kb.get_boolean_kb())
 
 # ЗДОРОВ'Я ТА ІНКЛЮЗІЯ
 @reg_router.message(Registration.entering_health_bool, F.text)
 async def process_health_bool(message: Message, state: FSMContext):
     if message.text.strip().lower() == "так":
-        await state.update_data(health_bool=True)
+        await state.update_data(hasHealthIssues=True)
         await state.set_state(Registration.entering_health_details)
         await message.answer("Будь ласка, опиши їх коротко (це важливо, аби могли забезпечити інклюзивне середовище):", reply_markup=ReplyKeyboardRemove())
     elif message.text.strip().lower() == "ні":
-        await state.update_data(health_bool=False, health_details="")
+        await state.update_data(hasHealthIssues=False, healthIssuesDetails="")
         await _show_data_confirmation(message, state)
     else:
         await message.answer("⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
 
 @reg_router.message(Registration.entering_health_details, F.text)
 async def process_health_details(message: Message, state: FSMContext):
-    await state.update_data(health_details=message.text.strip())
+    await state.update_data(healthIssuesDetails=message.text.strip())
     await _show_data_confirmation(message, state)
 
 # ==========================================
@@ -378,20 +395,20 @@ async def _show_data_confirmation(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.set_state(Registration.confirming_data)
     
-    health_txt = f"Так ({data.get('health_details')})" if data.get('health_bool') else "Ні"
-    disp_txt = f"Так ({data.get('displaced_region')})" if data.get('is_displaced') else "Ні"
-    dob_obj = data.get('dateOfBirth')
+    health_txt = f"Так ({data.get('healthIssuesDetails')})" if data.get('hasHealthIssues') else "Ні"
+    disp_txt = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
+    dob_obj = data.get('birthDate')
     dob_str = dob_obj.strftime("%d.%m.%Y") if hasattr(dob_obj, "strftime") else "Не вказано"
-    
+
     summary = (
         "<b>👀 Перевір свої дані перед збереженням:</b>\n\n"
-        f"👤 <b>Ім'я:</b> {data.get('first_name')} {data.get('last_name')}\n"
+        f"👤 <b>Ім'я:</b> {data.get('firstName')} {data.get('lastName')}\n"
         f"📅 <b>Дата народження:</b> {dob_str}\n"
         f"📧 <b>Email:</b> {data.get('email')}\n"
         f"📱 <b>Телефон:</b> {data.get('phone')}\n"
         f"📍 <b>Проживання:</b> {data.get('city')}, {data.get('country')}\n"
         f"🕊 <b>ВПО:</b> {disp_txt}\n\n"
-        f"👨‍👩‍👧 <b>Відповідальна особа:</b>\n{data.get('parent_first_name')} {data.get('parent_last_name')}\n{data.get('parent_email')}\n{data.get('parent_phone')}\n"
+        f"👨‍👩‍👧 <b>Відповідальна особа:</b>\n{data.get('parentFirstName')} {data.get('parentLastName')}\n{data.get('parentEmail')}\n{data.get('parentPhone')}\n"
         f"🏥 <b>Особливі потреби:</b> {health_txt}\n\n"
         "Усе правильно?"
     )
@@ -419,40 +436,40 @@ async def select_field_to_edit(callback: CallbackQuery, state: FSMContext):
     if field == "cancel":
         await callback.message.delete()
         return await _show_data_confirmation(callback.message, state)
-        
-    await state.update_data(editing_field=field)
+
+    await state.update_data(editingField=field)
     await state.set_state(Registration.editing_field)
-    
+
     prompts = {
-        "first_name": "Введи нове <b>ім'я</b> (англійською):",
-        "last_name": "Введи нове <b>прізвище</b> (англійською):",
-        "dob": "Введи нову <b>дату народження</b> (ДД.ММ.РРРР):",
+        "firstName": "Введи нове <b>ім'я</b> (англійською):",
+        "lastName": "Введи нове <b>прізвище</b> (англійською):",
+        "birthDate": "Введи нову <b>дату народження</b> (ДД.ММ.РРРР):",
         "email": "Введи новий <b>Email</b>:",
         "country": "Введи нову <b>країну</b> проживання:",
         "city": "Введи нове <b>місто</b> проживання:"
     }
-    
+
     await callback.message.delete()
     await callback.message.answer(prompts[field])
 
 @reg_router.message(Registration.editing_field)
 async def process_field_edit(message: Message, state: FSMContext):
     data = await state.get_data()
-    field = data.get("editing_field")
-    
-    if field == "first_name":
+    field = data.get("editingField")
+
+    if field == "firstName":
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
             return await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
-        await state.update_data(first_name=val)
-        
-    elif field == "last_name":
+        await state.update_data(firstName=val)
+
+    elif field == "lastName":
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
             return await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
-        await state.update_data(last_name=val)
-        
-    elif field == "dob":
+        await state.update_data(lastName=val)
+
+    elif field == "birthDate":
         try:
             dob_obj = datetime.strptime(message.text.strip(), "%d.%m.%Y")
             today = datetime.now()
@@ -461,24 +478,24 @@ async def process_field_edit(message: Message, state: FSMContext):
                 return await message.answer("⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             age_group = "older" if 14 <= age <= 18 else "younger"
             dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
-            await state.update_data(dateOfBirth=dob_timestamp, ageGroup=age_group)
+            await state.update_data(birthDate=dob_timestamp, ageGroup=age_group)
         except ValueError:
             return await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2011)")
-            
+
     elif field == "email":
         val = message.text.lower().strip()
         if not re.match(EMAIL_REGEX, val):
             return await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
         await state.update_data(email=val)
-        
+
     elif field == "country":
         await state.update_data(country=message.text.strip().title())
-        
+
     elif field == "city":
         await state.update_data(city=message.text.strip().title())
-        
+
     # Очищуємо поле та повертаємо користувача до підтвердження
-    await state.update_data(editing_field=None)
+    await state.update_data(editingField=None)
     await _show_data_confirmation(message, state)
 
 # endregion =====================================================
@@ -509,7 +526,7 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 
 @reg_router.callback_query(Registration.passing_rules, F.data == "rules_start")
 async def process_rules(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(quiz_step=0)
+    await state.update_data(quizStep=0)
     await callback.answer()
     await callback.message.edit_text(
             RULES_MSG,
@@ -520,7 +537,7 @@ async def process_rules(callback: CallbackQuery, state: FSMContext):
 @reg_router.callback_query(Registration.passing_rules, (F.data.startswith("ans_")) | (F.data == "quiz_start"))
 async def process_quiz(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    step = data.get("quiz_step", 0)
+    step = data.get("quizStep", 0)
     
     if callback.data.startswith("ans_"):
         ans_idx = int(callback.data.split("_")[1])
@@ -536,7 +553,7 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
                 show_alert=True
             )
             # Скидаємо прогрес
-            await state.update_data(quiz_step=0)
+            await state.update_data(quizStep=0)
             # Повертаємо повідомлення з правилами та кнопкою "Take the quiz"
             await callback.message.edit_text(
                 RULES_MSG,
@@ -555,15 +572,14 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
             text_to_send,
             reply_markup=kb.get_quiz_kb(question["options"])
         )
-        await state.update_data(quiz_step=step + 1)
+        await state.update_data(quizStep=step + 1)
         
     # 3. Логіка успішного завершення
     else:
         await callback.answer()
-        await callback.message.delete()
 
         data = await state.get_data()
-        first_name = data.get('first_name', '')
+        first_name = data.get('firstName', '')
 
         await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
         await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())

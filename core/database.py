@@ -145,27 +145,27 @@ async def save_lead_profile(doc_id: str, data: dict, next_stage: str):
     та переводить ліда на наступний етап.
     """
     payload = {
-        "firstName": data.get("first_name", ""),
-        "lastName": data.get("last_name", ""),
+        "firstName": data.get("firstName", ""),
+        "lastName": data.get("lastName", ""),
         "email": data.get("email", ""),
         "phone": data.get("phone", ""),
         "gender": data.get("gender", ""),
-        "birthDate": data.get("dateOfBirth"),
+        "birthDate": data.get("birthDate"),
         "ageGroup": data.get("ageGroup", ""),
 
         "country": data.get("country", ""),
         "city": data.get("city", ""),
-        "isDisplaced": data.get("is_displaced", False),
-        "displacedRegion": data.get("displaced_region", ""),
+        "isDisplaced": data.get("isDisplaced", False),
+        "displacedRegion": data.get("displacedRegion", ""),
 
-        "parentFirstName": data.get("parent_first_name", ""),
-        "parentLastName": data.get("parent_last_name", ""),
-        "parentEmail": data.get("parent_email", ""),
-        "parentPhone": data.get("parent_phone", ""),
+        "parentFirstName": data.get("parentFirstName", ""),
+        "parentLastName": data.get("parentLastName", ""),
+        "parentEmail": data.get("parentEmail", ""),
+        "parentPhone": data.get("parentPhone", ""),
 
-        "leadSource": data.get("lead_source", ""),
-        "hasHealthIssues": data.get("health_bool", False),
-        "healthIssuesDetails": data.get("health_details", ""),
+        "leadSource": data.get("leadSource", ""),
+        "hasHealthIssues": data.get("hasHealthIssues", False),
+        "healthIssuesDetails": data.get("healthIssuesDetails", ""),
 
         "stage": next_stage,
         "stageUpdatedAt": get_kyivtime_now()
