@@ -625,19 +625,20 @@ async def admin_show_lead_details(callback: CallbackQuery):
     dob = data.get('birthDate')
     dob_str = dob.strftime("%d.%m.%Y") if hasattr(dob, 'strftime') else str(dob)
 
-    displaced_info = f"ВПО/Біженець ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Не ВПО/Біженець"
+    displaced_info = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
 
     detailed_text = (
         f"<b>📋 Повна анкета: {data.get('firstName')} {data.get('lastName')}</b>\n\n"
         f"<b>Дата народження:</b> {dob_str} ({data.get('ageGroup')})\n"
-        f"<b>Email:</b> <code>{data.get('email')}</code>\n"
-        f"<b>Телефон:</b> <code>{phone}</code> | {display_username}\n"
+        f"<b>Email:</b> {data.get('email')}\n"
+        f"<b>Телефон:</b> {phone} | {display_username}\n"
         f"<b>Стать:</b> {data.get('gender')}\n"
-        f"<b>Локація:</b> {data.get('city')}, {data.get('country')} | {displaced_info}\n"
-        f"<b>Джерело:</b> {data.get('leadSource')}\n"
+        f"<b>Локація:</b> {data.get('city')}, {data.get('country')}\n"
+        f"<b>Джерело ліда:</b> {data.get('leadSource')}\n\n"
+        f"<b>ВПО/біженець:</b> {displaced_info}\n"
         f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
         f"<b>Батьки:</b> {data.get('parentFirstName')} {data.get('parentLastName')}\n"
-        f"<b>Контакти батьків:</b> <code>{data.get('parentPhone')}</code> | {data.get('parentEmail')}\n\n"
+        f"<b>Контакти батьків:</b>\n{data.get('parentPhone')}\n{data.get('parentEmail')}\n\n"
         f"<i>Документ перевірено ШІ: {data.get('aiDocType')}</i>"
     )
     
@@ -705,6 +706,7 @@ async def admin_approve_lead(callback: CallbackQuery):
         "stageUpdatedAt": db.get_kyivtime_now(),
         "roles": ["student"] # Надаємо базову роль
     })
+
     
     # 2. Оновлюємо інтерфейс куратора
     reviewer_name = callback.from_user.full_name
@@ -715,8 +717,10 @@ async def admin_approve_lead(callback: CallbackQuery):
         reply_markup=None # Видаляємо кнопки
     )
     
+
     # 3. TODO: Тут буде виклик SchoolToday API
     
+
     # 4. Надсилаємо студенту привітання та Lock Screen меню
     doc = await firestore_client.collection('Svitlo').document(doc_id).get()
     data = doc.to_dict()

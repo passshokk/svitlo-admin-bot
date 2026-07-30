@@ -121,6 +121,7 @@
         }
 
         .segment-control {
+            position: relative; /* точка відліку для .segment-indicator */
             flex: 1;
             display: flex;
             background: rgba(28, 28, 30, 0.55);
@@ -131,7 +132,27 @@
             padding: 3px;
         }
 
+        /* Жовта "пігулка", що ковзає під активною вкладкою — розмір/позицію
+           рахує moveSegmentIndicator() в JS по фактичному button.offsetLeft/Width,
+           швидкість анімації — тут, у transition. */
+        .segment-indicator {
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            left: 0;
+            width: 0;
+            background: rgba(220, 175, 66, 0.28);
+            border-radius: 10px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+            transition: transform .3s cubic-bezier(.25, .8, .25, 1),
+                        width .3s cubic-bezier(.25, .8, .25, 1);
+            pointer-events: none;
+            z-index: 0;
+        }
+
         .segment-btn {
+            position: relative; /* щоб текст був поверх .segment-indicator */
+            z-index: 1;
             flex: 1;
             background: transparent;
             color: rgba(255, 255, 255, 0.65);
@@ -143,14 +164,10 @@
             border-radius: 10px;
             cursor: pointer;
             white-space: nowrap;
-            transition: background .25s ease, color .25s ease;
+            transition: color .25s ease;
         }
 
-        .segment-btn.active {
-            background: rgba(220, 175, 66, 0.28);
-            color: #fff;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-        }
+        .segment-btn.active { color: #fff; }
 
         /* Розмір/форма своя, а колір/скло — з .pill-neutral (клас додано в HTML) */
         .icon-btn {
@@ -423,6 +440,7 @@
 
         <div class="top-bar">
             <div class="segment-control">
+                <div class="segment-indicator" id="segment-indicator"></div>
                 <button class="segment-btn active" data-type="type-id">ID-картка</button>
                 <button class="segment-btn" data-type="type-passport">Закордонний</button>
                 <button class="segment-btn" data-type="type-cert">Свідоцтво</button>
@@ -482,6 +500,7 @@
         const flashEl      = document.getElementById('flash');
         const typeHint     = document.getElementById('type-hint');
         const segmentBtns  = document.querySelectorAll('.segment-btn');
+        const segmentIndicator = document.getElementById('segment-indicator');
 
         const procCanvas = document.getElementById('processing-canvas');
         const procCtx    = procCanvas.getContext('2d', { willReadFrequently: true });
@@ -506,7 +525,7 @@
         //   документ  -> edges 6..19,  contrast 53..81
         //   долоня    -> edges 0.16,   contrast 4.3
         //   стіл/стіна-> edges 0.13,   contrast 0..13
-        const MOTION_THRESH    = 12;  // середня різниця пікселів між кадрами
+        const MOTION_THRESH    = 10;  // середня різниця пікселів між кадрами
         const SHARPNESS_THRESH = 4;   // середній горизонтальний градієнт (деталізація/різкість)
         const CONTRAST_THRESH  = 20;  // стандартне відхилення яскравості (у кадрі документ, а не рука/стіна)
         const FRAMES_TO_FREEZE = 10;  // 10 кадрів * 100мс = 1с стабільності
@@ -515,7 +534,7 @@
 
         const HINTS = {
             'type-id':       "Наведи на ID-картку — має бути видно все поле рамки",
-            'type-passport': "Наведи на головну сторінку паспорта",
+            'type-passport': "Наведи на головну сторінку закордонного паспорта",
             'type-cert':     "Свідоцтво про народження має вміститись цілком"
         };
 
@@ -809,7 +828,7 @@
         function startFallbackTimer() {
             clearTimeout(manualFallbackTimer);
             manualFallbackTimer = setTimeout(() => {
-                if (!isCaptured) enableManualMode("Не вдається зафіксувати автоматично — зніми вручну");
+                if (!isCaptured) enableManualMode("Не вдається зафіксувати автоматично — відскануй вручну");
             }, FALLBACK_MS);
         }
 
@@ -845,11 +864,22 @@
         window.addEventListener('resize', positionHint);
 
         // ============ Перемикач типу документа ============
+        // Жовта пігулка під активною вкладкою — позиція/ширина береться
+        // з фактичних розмірів кнопки (offsetLeft/offsetWidth відносно
+        // .segment-control, бо в нього position:relative), а не рахується
+        // вручну — тоді анімація коректна навіть якщо змінити текст вкладок.
+        function moveSegmentIndicator(btn) {
+            if (!segmentIndicator || !btn) return;
+            segmentIndicator.style.width = btn.offsetWidth + 'px';
+            segmentIndicator.style.transform = `translateX(${btn.offsetLeft}px)`;
+        }
+
         segmentBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 if (isCaptured) return;
                 segmentBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                moveSegmentIndicator(btn);
 
                 const type = btn.getAttribute('data-type');
                 viewfinder.className = `viewfinder ${type}`;
@@ -861,6 +891,13 @@
                 startFallbackTimer();
                 if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
             });
+        });
+
+        // Початкова позиція (без анімації "звідкись") + перерахунок при
+        // зміні розміру вікна (напр. поворот екрана).
+        moveSegmentIndicator(document.querySelector('.segment-btn.active'));
+        window.addEventListener('resize', () => {
+            moveSegmentIndicator(document.querySelector('.segment-btn.active'));
         });
 
         // ============ Захоплення кадру ============
