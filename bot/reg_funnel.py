@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
+from google.cloud import firestore
 import re
 from datetime import datetime, timezone
 import logging
@@ -581,6 +582,10 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         first_name = data.get('firstName', '')
 
+        student = student_ctx.get()
+        if student:
+            await db.update_crm_stage(student['id'], "uploading_docs")
+
         await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
         await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
         await state.set_state(Registration.uploading_docs)
@@ -702,7 +707,7 @@ async def admin_approve_lead(callback: CallbackQuery):
     
     # 1. Оновлюємо статус в БД на 'student'
     await firestore_client.collection('Svitlo').document(doc_id).update({
-        "roles": ["student"] # Надаємо базову роль
+        "roles": firestore.ArrayUnion(["student"]) # Додаємо роль, не затираючи вже наявні
     })
     await db.update_crm_stage(doc_id, "student")
 
