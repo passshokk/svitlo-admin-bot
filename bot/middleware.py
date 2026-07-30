@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 class LoadDataMiddleware(BaseMiddleware):
     """
     Глобальний мідлвейр: пошук користувача в БД за полем telegramId.
-    Якщо crm_stage = 'blocked' -> блокування.
+    Якщо stage = 'blocked' -> блокування.
     """
     async def __call__(self, handler, event: TelegramObject, data: dict):
         user = None
@@ -21,8 +21,8 @@ class LoadDataMiddleware(BaseMiddleware):
         if user:
             student = await db.get_student_by_tg_id(user.id)
             
-            # ⛔️ БЛОК: якщо crm_stage == 'blocked'
-            if student and student['data'].get('crm_stage') == 'blocked':
+            # ⛔️ БЛОК: якщо stage == 'blocked'
+            if student and student['data'].get('stage') == 'blocked':
                 # Повертаємо None без виклику handler(), повністю ігноруючи подальші дії
                 return
 
@@ -54,13 +54,13 @@ class RequireAuthMiddleware(BaseMiddleware):
             return await self._prompt_sync(event, data)
 
         student_data = dict(student.get('data', {}))
-        crm_stage = student_data.get('crm_stage')
+        stage = student_data.get('stage')
 
         # 2. Перевірка доступу (Студенти + Ролі)
         allowed_stages = ['student', 'alumni']
         allowed_roles = ['boss', 'teacher']
 
-        is_student = crm_stage in allowed_stages
+        is_student = stage in allowed_stages
         is_roles = any(role in user_roles for role in allowed_roles)
 
         if is_student or is_roles:
@@ -73,6 +73,9 @@ class RequireAuthMiddleware(BaseMiddleware):
         """Хендлер для неідентифікованих (Просимо email)"""
         state: FSMContext = data.get("state")
         await state.set_state(Registration.waiting_email)
+
+        trigger = event.data if isinstance(event, CallbackQuery) else getattr(event, "text", None)
+        await state.update_data(email_flow_source="middleware_auto_prompt", triggered_by=trigger)
 
         text_1 = "<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>"
         text_2 = "Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:"

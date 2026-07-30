@@ -140,7 +140,7 @@ async def cmd_house_smart_access(message: Message, state: FSMContext):
         await message.answer("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!")
         return
 
-    if data.get("houseAccess", False):
+    if data.get("hasHouseAccess", False):
         await message.answer("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
         return
 
@@ -179,6 +179,7 @@ async def reg_for_access(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await callback.answer()
     await state.set_state(Registration.waiting_email)
+    await state.update_data(email_flow_source="get_gengroup_access_btn")
     await callback.message.edit_text("🔐 <b>Процес отримання доступу до групи</b>")
     await callback.message.answer(
         "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації в SvitloSchool:",
@@ -194,6 +195,7 @@ async def verify_for_access(callback: CallbackQuery, state: FSMContext):
     # 1. Юзера взагалі немає в БД (старий зі SchoolToday) -> Відправляємо на лінковку
     if not student:
         await state.set_state(Registration.waiting_email)
+        await state.update_data(email_flow_source="verify_btn_no_student")
         await callback.message.edit_text("<b>🔐 Щоб користуватись повним функціоналом, синхронізуй акаунт</b>")
         await callback.message.answer("Напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
         return
@@ -242,7 +244,7 @@ async def clbck_house_smart_access(callback: CallbackQuery):
         await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
         return
 
-    if data.get("houseAccess", False):
+    if data.get("hasHouseAccess", False):
         await callback.message.edit_text("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
         return
 
@@ -602,7 +604,7 @@ async def process_email_input(message: Message, state: FSMContext):
         return
         
     data = student['data']
-    if data.get("groupAccess") is True:
+    if data.get("hasGroupAccess") is True:
         if not data.get("telegramId") or data.get("telegramId") == 0:
             await db.link_telegram_id(student['id'], user_id)
 
@@ -634,7 +636,7 @@ async def process_email_input(message: Message, state: FSMContext):
 
         await state.clear()
         
-        raw_name = data.get("name", "Учень")
+        raw_name = data.get("firstName", "Учень")
         name = str(raw_name).strip().title()
         await message.answer(
             f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n"

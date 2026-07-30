@@ -36,7 +36,7 @@ async def get_student_by_email(email: str):
 
 async def grant_access_to_student(doc_id: str, tg_id: int):
     await db.collection('Svitlo').document(doc_id).update({
-        'groupAccess': True,
+        'hasGroupAccess': True,
         'telegramId': tg_id
     })
 
@@ -45,7 +45,7 @@ async def link_telegram_id(doc_id: str, tg_id: int):
 
 async def grant_house_access(doc_id: str):
     """Ставить прапорець, що юзер вже отримав лінк на свій Хаус."""
-    await db.collection('Svitlo').document(doc_id).update({"houseAccess": True})
+    await db.collection('Svitlo').document(doc_id).update({"hasHouseAccess": True})
 
 # endregion
 
@@ -81,47 +81,47 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "semester": "1_26-27", #current semester number
         "telegramId": tg_id,
         "telegramUsername": username or "",
-        "crm_stage": "lead",
-        "created_at": now,
-        "crm_stage_updated_at": now,
-        "onboarding_followup_sent": 0,
-        
+        "stage": "lead",
+        "createdAt": now,
+        "stageUpdatedAt": now,
+        "followupStep": 0, # 0=none, 1=tg reminder 1, 2=tg reminder 2, 3=email reminder
+
         # 👤 Student Info
-        "first_name": "",
-        "last_name": "",
+        "firstName": "",
+        "lastName": "",
         "email": "",
         "phone": "",
         "gender": "",
-        "dateOfBirth": None, 
+        "birthDate": None,
         "ageGroup": "",
-        
+
         # 📍 Location & IDP/Refugee Status
         "country": "",
         "city": "",
-        "displaced_status": False,
-        "displaced_region": "",
-        
+        "isDisplaced": False,
+        "displacedRegion": "",
+
         # 👨‍👩‍👧 Parents / Guardians
-        "parent_first_name": "",
-        "parent_last_name": "",
-        "parent_email": "",
-        "parent_phone": "",
-        
+        "parentFirstName": "",
+        "parentLastName": "",
+        "parentEmail": "",
+        "parentPhone": "",
+
         # 🏥 Health & Marketing
-        "lead_source": "",
-        "health_issues_bool": False,
-        "health_issues_details": "",
+        "leadSource": "",
+        "hasHealthIssues": False,
+        "healthIssuesDetails": "",
 
         # 📚 School Rules
-        "rules_mistakes": 0,
+        "rulesMistakes": 0,
 
         # 🤖 AI Verification
-        "ai_doc_valid": False,
-        "ai_doc_type": "",
+        "aiDocValid": False,
+        "aiDocType": "",
 
         # 🔐 Access & Roles
-        "groupAccess": False,
-        "houseAccess": False,
+        "hasGroupAccess": False,
+        "hasHouseAccess": False,
         "house": "Newbie",
         "roles": []
     }
@@ -139,49 +139,55 @@ async def init_lead(tg_id: int, username: str | None) -> str:
             # У разі колізії цикл одразу генерує новий ID та повторює спробу
             continue
 
-async def save_lead_profile(doc_id: str, data: dict, next_crm_stage: str):
+async def save_lead_profile(doc_id: str, data: dict, next_stage: str):
     """
     Зберігає всі зібрані дані воронки у корінь документа Firebase (Flat Schema)
     та переводить ліда на наступний етап.
     """
     payload = {
-        "first_name": data.get("first_name", ""),
-        "last_name": data.get("last_name", ""),
+        "firstName": data.get("first_name", ""),
+        "lastName": data.get("last_name", ""),
         "email": data.get("email", ""),
         "phone": data.get("phone", ""),
         "gender": data.get("gender", ""),
-        "dateOfBirth": data.get("dateOfBirth"),
+        "birthDate": data.get("dateOfBirth"),
         "ageGroup": data.get("ageGroup", ""),
-        
+
         "country": data.get("country", ""),
         "city": data.get("city", ""),
-        "displaced_status": data.get("is_displaced", False),
-        "displaced_region": data.get("displaced_region", ""),
-        
-        "parent_first_name": data.get("parent_first_name", ""),
-        "parent_last_name": data.get("parent_last_name", ""),
-        "parent_email": data.get("parent_email", ""),
-        "parent_phone": data.get("parent_phone", ""),
-        
-        "lead_source": data.get("lead_source", ""),
-        "health_issues_bool": data.get("health_bool", False),
-        "health_issues_details": data.get("health_details", ""),
-        
-        "crm_stage": next_crm_stage,
-        "crm_stage_updated_at": get_kyivtime_now()
+        "isDisplaced": data.get("is_displaced", False),
+        "displacedRegion": data.get("displaced_region", ""),
+
+        "parentFirstName": data.get("parent_first_name", ""),
+        "parentLastName": data.get("parent_last_name", ""),
+        "parentEmail": data.get("parent_email", ""),
+        "parentPhone": data.get("parent_phone", ""),
+
+        "leadSource": data.get("lead_source", ""),
+        "hasHealthIssues": data.get("health_bool", False),
+        "healthIssuesDetails": data.get("health_details", ""),
+
+        "stage": next_stage,
+        "stageUpdatedAt": get_kyivtime_now()
     }
     await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
     # Видаляємо пусті ключі, щоб не перезаписати випадково існуючі None/дефолти
     # clean_payload = {k: v for k, v in payload.items() if v != ""}
     # await db.collection('Svitlo').document(doc_id).set(clean_payload, merge=True)
 
-async def update_crm_stage(doc_id: str, next_crm_stage: str):
+async def update_crm_stage(doc_id: str, next_stage: str):
     """
     Оновлює в `Svitlo` timestamp останньої активності юзера.
     """
     await db.collection('Svitlo').document(doc_id).update({
-        "crm_stage_updated_at": get_kyivtime_now(),
-        "crm_stage": next_crm_stage
+        "stageUpdatedAt": get_kyivtime_now(),
+        "stage": next_stage
+    })
+
+async def increment_rules_mistake(doc_id: str):
+    """Атомарно інкрементує лічильник неправильних відповідей у квізі правил."""
+    await db.collection('Svitlo').document(doc_id).update({
+        "rulesMistakes": firestore.Increment(1)
     })
 
 # endregion

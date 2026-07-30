@@ -24,8 +24,12 @@ from core.bot_init import bot
 from core import config as cfg
 from core.constants import APPLICATION_RECEIVED_MSG
 
-# Приховає рівень WARNING від внутрішніх логерів Vertex AI
-logging.getLogger("root").setLevel(logging.ERROR)
+# Приховує конкретний спам-варнінг Vertex AI SDK про rest_asyncio fallback на grpc
+class _SuppressVertexAsyncRestWarning(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "REST async clients requires async credentials" not in record.getMessage()
+
+logging.getLogger().addFilter(_SuppressVertexAsyncRestWarning())
 
 webapp_router = APIRouter()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -188,10 +192,10 @@ async def process_vision(
         student_data = student['data']
 
         await firestore_client.collection('Svitlo').document(doc_id).update({
-            "ai_doc_valid": True,
-            "ai_doc_type": result.get("doc_type", "unknown"),
-            "crm_stage": "admin_review",
-            "crm_stage_updated_at": db.get_kyivtime_now()
+            "aiDocValid": True,
+            "aiDocType": result.get("doc_type", "unknown"),
+            "stage": "admin_review",
+            "stageUpdatedAt": db.get_kyivtime_now()
         })
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
 
@@ -209,7 +213,7 @@ async def process_vision(
             tg_username = student_data.get('telegramUsername', '').replace('@', '')
             keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
 
-            full_name = f"{student_data.get('first_name', '')} {student_data.get('last_name', '')}"
+            full_name = f"{student_data.get('firstName', '')} {student_data.get('lastName', '')}"
             age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
             phone = student_data.get('phone', 'Не вказано')
             display_username = f"@{tg_username}" if tg_username else "Без юзернейму"

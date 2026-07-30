@@ -23,11 +23,13 @@ reg_router.callback_query.filter(IsDevFilter(), F.message.chat.type == "private"
 
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---
-@reg_router.message(Command("start"), F.chat.type == "private")
+# Виключаємо стани Registration, щоб /start посеред воронки ловив cmd_during_registration
+# (інакше він завжди йде першим і мовчки чистить прогрес без попередження)
+@reg_router.message(Command("start"), ~StateFilter(Registration))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     student = student_ctx.get()
-    student_stage = student['data'].get('crm_stage') if student else None
+    student_stage = student['data'].get('stage') if student else None
 
     if student and student_stage in ['student', 'alumni']:
         # Студент вже ідентифікований (має прив'язаний telegramId)
@@ -50,6 +52,7 @@ async def cmd_start(message: Message, state: FSMContext):
 async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(Registration.waiting_email)
+    await state.update_data(email_flow_source="guest_menu_auth_existing")
     await callback.message.edit_text("🔐 <b>Синхронізація акаунта</b>")
     await callback.message.answer("Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 #endregion -----------------------------------------------------
@@ -207,6 +210,10 @@ async def process_phone_contact(message: Message, state: FSMContext):
     phone = '+' + phone if not phone.startswith('+') else phone
 
     student = student_ctx.get()
+    if not student:
+        await message.answer("⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
+        return
+
     if ut.is_russian_phone_number(phone):
         await db.update_crm_stage(student['id'], "blocked")
         await db.clear_user_fsm(message.from_user.id)
@@ -233,6 +240,10 @@ async def process_phone_text_blocked(message: Message):
 async def process_country(message: Message, state: FSMContext):
     country = message.text.strip().title()
     student = student_ctx.get()
+    if not student:
+        await message.answer("⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
+        return
+
     if ut.is_russian_country_input(country):
         await db.update_crm_stage(student['id'], "blocked")
         await db.clear_user_fsm(message.from_user.id)
@@ -516,8 +527,12 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         
         # 1. Логіка при неправильній відповіді
         if ans_idx != QUIZ_DATA[step - 1]["correct"]:
+            student = student_ctx.get()
+            if student:
+                await db.increment_rules_mistake(student['id'])
+
             await callback.answer(
-                "❌ Неправильно! Повертаємось до правил. Уважно перечитай їх та спробуй пройти квіз ще раз", 
+                "❌ Неправильно! Повертаємось до правил. Уважно перечитай їх та спробуй пройти квіз ще раз",
                 show_alert=True
             )
             # Скидаємо прогрес
@@ -584,30 +599,30 @@ async def admin_show_lead_details(callback: CallbackQuery):
         return
         
     data = doc.to_dict()
-    health_text = f"Так ({data.get('health_issues_details')})" if data.get('health_issues_bool') else "Ні"
-    
+    health_text = f"Так ({data.get('healthIssuesDetails')})" if data.get('hasHealthIssues') else "Ні"
+
     tg_username = data.get('telegramUsername', '').replace('@', '')
     phone = data.get('phone', 'Не вказано')
     display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
 
     # Форматування дати народження для читабельності
-    dob = data.get('dateOfBirth')
+    dob = data.get('birthDate')
     dob_str = dob.strftime("%d.%m.%Y") if hasattr(dob, 'strftime') else str(dob)
 
-    displaced_info = f"ВПО/Біженець ({data.get('displaced_region')})" if data.get('displaced_status') else "Не ВПО/Біженець"
+    displaced_info = f"ВПО/Біженець ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Не ВПО/Біженець"
 
     detailed_text = (
-        f"<b>📋 Повна анкета: {data.get('name')} {data.get('surname')}</b>\n\n"
+        f"<b>📋 Повна анкета: {data.get('firstName')} {data.get('lastName')}</b>\n\n"
         f"<b>Дата народження:</b> {dob_str} ({data.get('ageGroup')})\n"
         f"<b>Email:</b> <code>{data.get('email')}</code>\n"
         f"<b>Телефон:</b> <code>{phone}</code> | {display_username}\n"
         f"<b>Стать:</b> {data.get('gender')}\n"
         f"<b>Локація:</b> {data.get('city')}, {data.get('country')} | {displaced_info}\n"
-        f"<b>Джерело:</b> {data.get('lead_source')}\n"
+        f"<b>Джерело:</b> {data.get('leadSource')}\n"
         f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
-        f"<b>Батьки:</b> {data.get('parent_first_name')} {data.get('parent_last_name')}\n"
-        f"<b>Контакти батьків:</b> <code>{data.get('parent_phone')}</code> | {data.get('parent_email')}\n\n"
-        f"<i>Документ перевірено ШІ: {data.get('ai_doc_type')}</i>"
+        f"<b>Батьки:</b> {data.get('parentFirstName')} {data.get('parentLastName')}\n"
+        f"<b>Контакти батьків:</b> <code>{data.get('parentPhone')}</code> | {data.get('parentEmail')}\n\n"
+        f"<i>Документ перевірено ШІ: {data.get('aiDocType')}</i>"
     )
     
     keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=False)
@@ -670,8 +685,8 @@ async def admin_approve_lead(callback: CallbackQuery):
     
     # 1. Оновлюємо статус в БД на 'student'
     await firestore_client.collection('Svitlo').document(doc_id).update({
-        "crm_stage": "student",
-        "crm_stage_updated_at": db.get_kyivtime_now(),
+        "stage": "student",
+        "stageUpdatedAt": db.get_kyivtime_now(),
         "roles": ["student"] # Надаємо базову роль
     })
     
@@ -694,7 +709,7 @@ async def admin_approve_lead(callback: CallbackQuery):
     # Видаляємо технічний смітник з FSM_Sessions (фінальне очищення)
     await db.clear_user_fsm(user_id)
     
-    first_name = data.get('first_name', 'Student')
+    first_name = data.get('firstName', 'Student')
     gender = data.get('gender', '')
     if gender == "Male": dp_gender = "студент"
     elif gender == "Female": dp_gender = "студентка"
@@ -757,13 +772,12 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
     
     # 1. Відкат стану в базі даних
     student = student_ctx.get()
+    if not student:
+        # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
+        student = await db.get_student_by_tg_id(callback.from_user.id)
+
     if student:
         # Повертаємо ліда на початковий етап, щоб /start відпрацював коректно
-        await db.update_crm_stage(student['id'], "lead")
-    else:
-        # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
-        user_id = callback.from_user.id
-        student = db.get_student_by_tg_id(user_id)
         await db.update_crm_stage(student['id'], "lead")
 
     await state.clear()
@@ -771,7 +785,9 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
 
 
 # --- 2. Ловитель невідповідного контенту/типу даних ---
-@reg_router.message(StateFilter(Registration))
+# waiting_email виключено: цей стан обробляють хендлери email-синку в bot/handlers.py
+# (інакше цей catch-all перехоплює їх раніше, ніж вони встигають спрацювати)
+@reg_router.message(StateFilter(Registration), ~StateFilter(Registration.waiting_email))
 async def process_invalid_registration_input(message: Message, state: FSMContext):
     current_state = await state.get_state()
 
@@ -798,7 +814,7 @@ async def process_invalid_registration_input(message: Message, state: FSMContext
 
 
 # --- 3. Інтерцептор застарілих колбеків ---
-@reg_router.callback_query(StateFilter(Registration))
+@reg_router.callback_query(StateFilter(Registration), ~StateFilter(Registration.waiting_email))
 async def process_stale_callbacks(callback: CallbackQuery, state: FSMContext):
     await callback.answer(
         "Ця кнопка застаріла або неактивна на даному етапі реєстрації. Продовжуй ввід у чаті або скористайся /help",

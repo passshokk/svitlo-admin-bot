@@ -13,10 +13,10 @@ from core import config as cfg
 
 def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""
-    full_name = f"{data.get('name', 'Невідомо')} {data.get('surname', '')}".strip()
+    full_name = f"{data.get('firstName', 'Невідомо')} {data.get('lastName', '')}".strip()
     email = data.get("email", "Немає")
-    
-    dob_raw = data.get("dateOfBirth")
+
+    dob_raw = data.get("birthDate")
     if isinstance(dob_raw, str) and dob_raw:
         dob = dob_raw
     elif dob_raw:
