@@ -427,6 +427,7 @@
                 <button class="segment-btn" data-type="type-passport">Закордонний</button>
                 <button class="segment-btn" data-type="type-cert">Свідоцтво</button>
             </div>
+            <button class="icon-btn pill-neutral available" id="flip-btn" aria-label="Перемкнути камеру">🔁</button>
             <button class="icon-btn pill-neutral" id="torch-btn" aria-label="Ліхтарик">🔦</button>
         </div>
 
@@ -476,6 +477,7 @@
         const manualBtn    = document.getElementById('manual-snap-btn');
         const retakeBtn    = document.getElementById('retake-btn');
         const torchBtn     = document.getElementById('torch-btn');
+        const flipBtn      = document.getElementById('flip-btn');
         const focusProgress= document.getElementById('focus-progress');
         const flashEl      = document.getElementById('flash');
         const typeHint     = document.getElementById('type-hint');
@@ -497,6 +499,7 @@
         let badStreak         = 0;
         let mediaStream       = null;
         let torchOn           = false;
+        let currentFacing     = 'environment';
 
         // --- Пороги автозахоплення ---
         // Заміряно на синтетичних кадрах 100x100:
@@ -525,47 +528,29 @@
             return btn ? btn.getAttribute('data-type') : 'type-id';
         }
 
-        // ============ Вибір фізичної камери (без "віртуальних" мультилінзових) ============
-        // На iPhone з кількома задніми об'єктивами facingMode:"environment" часто
-        // резолвиться в "віртуальний" Dual/Triple Camera пристрій, чий дефолтний
-        // zoom НЕ відповідає тому, що нативний Camera-додаток показує як "1x" —
-        // тому кадр виглядає сильно наближеним. Керувати зумом через getUserMedia
-        // constraints надійного способу немає (підтверджено відкритим тікетом
-        // Apple/WebKit — https://developer.apple.com/forums/thread/776460,
-        // https://bugs.webkit.org/show_bug.cgi?id=253186). Єдиний робочий обхід —
-        // обрати конкретний фізичний об'єктив по deviceId/label напряму.
-        async function pickPlainWideBackCameraId() {
-            let devices;
-            try {
-                devices = await navigator.mediaDevices.enumerateDevices();
-            } catch (e) {
-                return null;
-            }
-
-            const backCams = devices.filter(d =>
-                d.kind === 'videoinput' && d.label && !/front|user|selfie|face/i.test(d.label)
-            );
-            if (backCams.length < 2) return null; // лейблів/вибору немає — лишаємось на тому, що вже працює
-
-            const isComposite = (label) => /dual|triple|fusion/i.test(label);
-            const isUltraOrTele = (label) => /ultra|tele/i.test(label);
-
-            const preferred =
-                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label) && /wide/i.test(d.label)) ||
-                backCams.find(d => !isComposite(d.label) && !isUltraOrTele(d.label));
-
-            return preferred ? preferred.deviceId : null;
-        }
-
         // ============ Камера ============
+        // Свідомо НЕ вибираємо камеру по deviceId/label (enumerateDevices) —
+        // вже пробували: лейбли локалізовані під мову системи, і матчинг по
+        // англійських ключових словах ("front"/"wide"/...) ловив не той
+        // пристрій (на iPhone 15 з українською локаллю зловив фронтальну
+        // камеру). Замість цього просимо потрібний бік явно через facingMode
+        // і даємо користувачу ручний перемикач (flip-btn) як запасний варіант,
+        // якщо платформа все одно вибере не те.
         async function initCamera() {
             // Портретна орієнтація стріму — принципово. 1440x1920 (3:4) ближче
             // до нативного FOV камери, ніж 9:16 — фінальну обрізку під екран
             // все одно робить object-fit:cover.
+            //
+            // Перша спроба — exact: якщо потрібний бік камери фізично є,
+            // це змушує його взяти замість того, щоб платформа сама
+            // "здогадувалась" по м'якому ideal (звідки й бралась фронтальна
+            // камера замість задньої). exact кидає помилку, якщо такого
+            // пристрою нема — тоді просто йдемо далі по списку fallback'ів.
             const attempts = [
-                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
-                { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false },
-                { video: { facingMode: "environment" }, audio: false },
+                { video: { facingMode: { exact: currentFacing }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
+                { video: { facingMode: { ideal: currentFacing }, width: { ideal: 1440 }, height: { ideal: 1920 } }, audio: false },
+                { video: { facingMode: { ideal: currentFacing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false },
+                { video: { facingMode: currentFacing }, audio: false },
                 { video: true, audio: false }
             ];
 
@@ -580,21 +565,6 @@
                 setHint("Немає доступу до камери");
                 tg.showAlert("⚠️ Немає доступу до камери. Перезапусти сканер та надай дозвіл");
                 return;
-            }
-
-            // Тепер, коли дозвіл вже надано, enumerateDevices() повертає лейбли —
-            // можна прицільно перепідключитись на звичайний (не віртуальний) Wide-об'єктив.
-            const preferredId = await pickPlainWideBackCameraId();
-            const activeSettings = mediaStream.getVideoTracks()[0].getSettings();
-            if (preferredId && preferredId !== activeSettings.deviceId) {
-                try {
-                    const refinedStream = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: { exact: preferredId }, width: { ideal: 1440 }, height: { ideal: 1920 } },
-                        audio: false
-                    });
-                    mediaStream.getTracks().forEach(t => t.stop());
-                    mediaStream = refinedStream;
-                } catch (e) { /* лишаємось на початковому стрімі */ }
             }
 
             video.srcObject = mediaStream;
@@ -624,24 +594,36 @@
             track.applyConstraints({ advanced: [{ zoom: target }] }).catch(() => {});
         }
 
+        // Викликається щоразу, коли (пере)стартує камера (в т.ч. після
+        // flipCamera) — тому лише виставляє стан на поточному track, а не
+        // вішає новий click-listener (інакше після кількох перемикань
+        // камери спрацьовувало б по кілька разів на один тап).
         function initTorch() {
+            torchOn = false;
+            torchBtn.classList.remove('available', 'on');
+
             const track = mediaStream.getVideoTracks()[0];
             if (!track || typeof track.getCapabilities !== 'function') return;
             const caps = track.getCapabilities();
             if (!caps || !caps.torch) return;
 
             torchBtn.classList.add('available');
-            torchBtn.addEventListener('click', async () => {
-                torchOn = !torchOn;
-                try {
-                    await track.applyConstraints({ advanced: [{ torch: torchOn }] });
-                    torchBtn.classList.toggle('on', torchOn);
-                } catch (e) {
-                    torchOn = false;
-                    torchBtn.classList.remove('available');
-                }
-            });
         }
+
+        // Один постійний обробник — щоразу читає АКТУАЛЬНИЙ mediaStream,
+        // а не той, що був на момент виклику initTorch().
+        torchBtn.addEventListener('click', async () => {
+            const track = mediaStream && mediaStream.getVideoTracks()[0];
+            if (!track) return;
+            torchOn = !torchOn;
+            try {
+                await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+                torchBtn.classList.toggle('on', torchOn);
+            } catch (e) {
+                torchOn = false;
+                torchBtn.classList.remove('available', 'on');
+            }
+        });
 
         function stopCamera() {
             if (mediaStream) {
@@ -649,6 +631,22 @@
                 mediaStream = null;
             }
         }
+
+        // ============ Ручне перемикання камери ============
+        // Запасний варіант на випадок, коли платформа сама вибрала не той
+        // бік камери (див. коментар над initCamera) — просто перезапускає
+        // getUserMedia з іншим facingMode.
+        async function flipCamera() {
+            if (isCaptured) return;
+            currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+            document.body.classList.remove('state-manual');
+            viewfinder.classList.remove('status-moving', 'status-focusing');
+            stopCamera();
+            await initCamera();
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        }
+
+        flipBtn.addEventListener('click', flipCamera);
 
         // ============ Геометрія: рамка -> координати відеокадру ============
         // Відео рендериться з object-fit: cover, тому потрібен зворотний мапінг.
