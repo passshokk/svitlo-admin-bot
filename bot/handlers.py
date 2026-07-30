@@ -217,22 +217,6 @@ async def clbck_profile(callback: CallbackQuery):
     text = ut.get_profile_text(student['data'])
     await callback.message.edit_text(text, reply_markup=kb.get_back_to_menu_kb())
 
-@public_router.callback_query(F.data == "notify_me")
-async def add_notify_state(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    user_id = callback.from_user.id
-    await state.clear()
-    await db.set_custom_state(user_id, "notify_for_dbupdate_6sem")
-    # не забути заклірити state коли розішлю розсилку і розсилати зразу з інлайном get_gengroup_access на приєднання до чату
-    
-    msg = await callback.message.answer("...", reply_markup=ReplyKeyboardRemove())
-    await msg.delete()
-    await callback.message.edit_text(
-        "<b>✅ Я успішно записав тебе в список.</b>\n"
-        "Як тільки наші адміністратори оновлять базу даних, я надішлю тобі сповіщення з посиланням на твою групу",
-        parse_mode="HTML"
-    )
-
 @private_router.callback_query(F.data == "house")
 async def clbck_house_smart_access(callback: CallbackQuery):
     await callback.answer()
@@ -593,14 +577,6 @@ async def process_email_input(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_pasha_curator_keyboard()
         )
-        # 
-        # await message.answer(
-        #     "<b>Увага!</b>\n"
-        #     "📌 Врахуй, що нині відбувається активний набір нових студентів, тому якщо ти зовсім недавно доєднався до Світло, твоя пошта може бути ще не внесена в базу.\n\n"
-        #     "<b>🔸 Аби не прогавити момент, коли ти зможеш доєднатися до своєї Телеграм Групи — натискай кнопку нижче і я сповіщу, коли все буде готово! 👇</b>",
-        #     parse_mode="HTML",
-        #     reply_markup=kb.get_notify_me_kb()
-        # )
         return
         
     data = student['data']

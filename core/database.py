@@ -196,15 +196,6 @@ async def increment_rules_mistake(doc_id: str):
 # endregion
 
 # ==========================
-# region --- User Email State DB
-
-async def set_custom_state(tg_id: int, state: str): # для повідомлення про оновлення бази перед новим семестром
-    await db.collection('BotUsers').document(str(tg_id)).set({'custom_state': state}, merge=True)
-
-
-# endregion
-
-# ==========================
 # region --- Ticket System
 
 async def create_ticket(ticket_id: int, student_id: int, category: str, first_message: str):

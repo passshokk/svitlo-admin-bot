@@ -222,11 +222,6 @@ def get_email_cancel_kb() -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text="🚫 Скасувати введення")]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
-def get_notify_me_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🔔 Нагадати мені", callback_data="notify_me"))
-    return builder.as_markup()
-
 def get_pasha_curator_keyboard() -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(text="Зв'язатися з куратором", url="https://t.me/passshokk")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

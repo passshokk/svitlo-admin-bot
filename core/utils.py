@@ -105,8 +105,8 @@ def format_notion_date(date_val) -> str:
     """Перетворює дату у правильний ISO формат з часовим поясом для Notion"""
     if not date_val:
         return None
-            
-    dt = dt.replace(tzinfo=ZoneInfo("Europe/Kyiv"))
+
+    dt = date_val.astimezone(ZoneInfo("Europe/Kyiv"))
     return dt.isoformat()
 
 async def export_to_notion(ticket_data: dict):
