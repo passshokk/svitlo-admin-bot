@@ -26,6 +26,50 @@
             --safe-bottom: env(safe-area-inset-bottom, 0px);
         }
 
+        /* ==========================================================
+           ДОВІДНИК: де що налаштовувати
+           ==========================================================
+           Кольори бренду        -> тут, у :root (--brand-*, --accent-color,
+                                     --success-color, --warning-color).
+           Позиція елемента      -> шукай "position: absolute" у потрібному
+                                     правилі; top/bottom/left рахуються від
+                                     --safe-top/--safe-bottom через calc(...),
+                                     щоб не залазити під чолку/жести.
+           Швидкість/тривалість  -> значення в transition/animation кожного
+                                     правила (напр. .35s, 4s).
+           Текст/кнопка "звичайна" (нейтральна)
+                                 -> клас .pill-neutral: напівпрозоре скло,
+                                    білий текст. Приклади: підказка над
+                                    рамкою, кнопка "Перезняти", ліхтарик
+                                    у вимкненому стані.
+           Текст/кнопка "CTA" (заклик до дії)
+                                 -> клас .pill-cta: суцільний --brand-gold,
+                                    темний текст. Приклади: підказка "Обери
+                                    тип документа", ліхтарик у ввімкненому
+                                    стані. Кнопка підтвердження знизу — це
+                                    нативна Telegram MainButton; її колір
+                                    задається в JS через tg.MainButton
+                                    .setParams({color, text_color}), не тут.
+           Рамка видошукача      -> .viewfinder{top} — вертикальна позиція
+                                     на екрані; .viewfinder.type-*{width,
+                                     aspect-ratio} — розмір і форма під
+                                     кожен тип документа.
+           ========================================================== */
+
+        .pill-neutral {
+            background: rgba(28, 28, 30, 0.55);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        .pill-cta {
+            background: var(--brand-gold);
+            color: var(--brand-dark);
+            border: none;
+        }
+
         * {
             box-sizing: border-box;
             user-select: none;
@@ -108,6 +152,7 @@
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
         }
 
+        /* Розмір/форма своя, а колір/скло — з .pill-neutral (клас додано в HTML) */
         .icon-btn {
             width: 42px;
             height: 42px;
@@ -115,29 +160,30 @@
             display: none;
             align-items: center;
             justify-content: center;
-            background: rgba(28, 28, 30, 0.55);
-            -webkit-backdrop-filter: blur(16px);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 13px;
             font-size: 18px;
-            color: #fff;
             cursor: pointer;
-            transition: background .2s ease;
+            transition: background .2s ease, color .2s ease;
         }
 
         .icon-btn.available { display: flex; }
-        .icon-btn.on { background: rgba(255, 255, 255, 0.85); color: #000; }
 
-        /* Короткий помітний підказник на перші кілька секунд — щоб не
-           губилась опція вибору типу документа над рамкою. */
-        .type-hint {
-            position: absolute;
-            top: calc(var(--safe-top) + 66px);
-            left: 50%;
-            transform: translateX(-50%) translateY(-6px);
+        /* Ліхтарик увімкнено — переходить у CTA-стиль (той самий жовтий,
+           що й активна вкладка типу документа), а не білий/чорний. */
+        .icon-btn.on {
             background: var(--brand-gold);
             color: var(--brand-dark);
+            border-color: transparent;
+        }
+
+        /* Короткий помітний підказник на перші кілька секунд — щоб не
+           губилась опція вибору типу документа над рамкою.
+           Колір/фон — з .pill-cta (клас додано в HTML). */
+        .type-hint {
+            position: absolute;
+            top: calc(var(--safe-top) + 80px);
+            left: 50%;
+            transform: translateX(-50%) translateY(-6px);
             font-size: 12.5px;
             font-weight: 700;
             padding: 7px 14px;
@@ -165,10 +211,9 @@
         }
 
         .viewfinder {
-            /* top:40%, а не рівний центр (50%) — трохи вище лишає більше
-               місця знизу під підказку та кнопки. */
+            /* top:45%, а не рівний центр (50%) — трохи вище */
             position: absolute;
-            top: 40%;
+            top: 45%;
             left: 50%;
             transform: translate(-50%, -50%);
             border-radius: 18px;
@@ -253,20 +298,19 @@
         }
 
         /* ---------- Підказка та кнопки ---------- */
+        /* Колір/фон — з .pill-neutral (клас додано в HTML). max-width 92vw,
+           а не 88vw — довші фрази ("Розмісти документ у рамці повністю")
+           влазили в один рядок гірше, ніж хотілось. */
         .hint-text {
             position: absolute;
             left: 50%;
             bottom: calc(var(--safe-bottom) + 104px);
             transform: translateX(-50%);
-            max-width: 88vw;
+            max-width: 92vw;
             text-align: center;
             font-size: 14.5px;
             font-weight: 500;
             line-height: 1.3;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.55);
-            -webkit-backdrop-filter: blur(10px);
-            backdrop-filter: blur(10px);
             padding: 10px 20px;
             border-radius: 18px;
             z-index: 50;
@@ -285,14 +329,12 @@
             pointer-events: none;
         }
 
+        /* Форма/розмір спільні для всіх кнопок панелі дій; колір/фон
+           #retake-btn — з .pill-neutral (клас додано в HTML). Кільце
+           затвора #manual-snap-btn нижче все одно перекриває це своїм. */
         .action-bar > button {
             display: none;
             pointer-events: auto;
-            background: rgba(255, 255, 255, 0.14);
-            -webkit-backdrop-filter: blur(14px);
-            backdrop-filter: blur(14px);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.22);
             padding: 13px 26px;
             border-radius: 22px;
             font-size: 15px;
@@ -302,7 +344,7 @@
             transition: background .18s ease, transform .18s ease;
         }
 
-        .action-bar > button:active { background: rgba(255, 255, 255, 0.26); transform: scale(.97); }
+        #retake-btn:active { background: rgba(255, 255, 255, 0.20); transform: scale(.97); }
 
         /* Ручний спуск — класичне кільце затвора замість текстової кнопки */
         #manual-snap-btn {
@@ -385,10 +427,10 @@
                 <button class="segment-btn" data-type="type-passport">Закордонний</button>
                 <button class="segment-btn" data-type="type-cert">Свідоцтво</button>
             </div>
-            <button class="icon-btn" id="torch-btn" aria-label="Ліхтарик">🔦</button>
+            <button class="icon-btn pill-neutral" id="torch-btn" aria-label="Ліхтарик">🔦</button>
         </div>
 
-        <div class="type-hint" id="type-hint">👆 Обери тип документа</div>
+        <div class="type-hint pill-cta" id="type-hint">👆 Обери тип документа</div>
 
         <div class="overlay-mask">
             <div class="viewfinder type-id" id="viewfinder">
@@ -402,11 +444,11 @@
 
         <canvas id="snapshot-canvas"></canvas>
 
-        <div class="hint-text" id="hint-text">Наведи на документ</div>
+        <div class="hint-text pill-neutral" id="hint-text">Наведи на документ</div>
 
         <div class="action-bar">
             <button id="manual-snap-btn" aria-label="Зробити фото"></button>
-            <button id="retake-btn">🔄 Перезняти</button>
+            <button id="retake-btn" class="pill-neutral">🔄 Перезняти</button>
         </div>
 
         <div id="flash"></div>
@@ -536,7 +578,7 @@
 
             if (!mediaStream) {
                 setHint("Немає доступу до камери");
-                tg.showAlert("⚠️ Немає доступу до камери. Надай дозвіл у налаштуваннях Telegram");
+                tg.showAlert("⚠️ Немає доступу до камери. Перезапусти сканер та надай дозвіл");
                 return;
             }
 
