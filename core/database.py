@@ -34,6 +34,22 @@ async def get_student_by_email(email: str):
         return {"id": doc.id, "data": doc.to_dict()}
     return None
 
+async def find_duplicate_applicant(doc_id: str, email: str, phone: str) -> dict | None:
+    """Шукає інші анкети (крім поточної) з тим самим email або телефоном — для антидубль-попередження куратору."""
+    if email:
+        query = db.collection('Svitlo').where(filter=FieldFilter('email', '==', email.lower().strip())).limit(3).stream()
+        async for doc in query:
+            if doc.id != doc_id:
+                return {"id": doc.id, "data": doc.to_dict()}
+
+    if phone:
+        query = db.collection('Svitlo').where(filter=FieldFilter('phone', '==', phone.strip())).limit(3).stream()
+        async for doc in query:
+            if doc.id != doc_id:
+                return {"id": doc.id, "data": doc.to_dict()}
+
+    return None
+
 async def grant_access_to_student(doc_id: str, tg_id: int):
     await db.collection('Svitlo').document(doc_id).update({
         'hasGroupAccess': True,
@@ -121,6 +137,9 @@ async def init_lead(tg_id: int, username: str | None) -> str:
 
         # 🤖 AI Verification
         "aiDocType": "",
+
+        # 🔁 Anti-duplicate
+        "possibleDuplicateId": "",
 
         # 🔐 Access & Roles
         "hasGroupAccess": False,
@@ -322,19 +341,27 @@ async def get_dev_ids() -> set[int]:
     _dev_ids_cache_ts = now
     return _dev_ids_cache
 
-async def add_dev_id(tg_id: int):
-    """Додає telegram ID до списку розробників. Діє одразу, без редеплою коду."""
+async def add_dev_id(tg_id: int, username: str | None = None):
+    """Додає telegram ID до списку розробників. Діє одразу, без редеплою коду.
+    username фіксується станом на момент додавання (для відображення в /adddev, /removedev)."""
     global _dev_ids_cache
     await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).set(
-        {"dev_ids": firestore.ArrayUnion([tg_id])}, merge=True
+        {
+            "dev_ids": firestore.ArrayUnion([tg_id]),
+            f"dev_usernames.{tg_id}": username,
+        },
+        merge=True,
     )
     _dev_ids_cache = None
 
 async def remove_dev_id(tg_id: int):
     """Прибирає telegram ID зі списку розробників."""
     global _dev_ids_cache
-    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).set(
-        {"dev_ids": firestore.ArrayRemove([tg_id])}, merge=True
+    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).update(
+        {
+            "dev_ids": firestore.ArrayRemove([tg_id]),
+            f"dev_usernames.{tg_id}": firestore.DELETE_FIELD,
+        }
     )
     _dev_ids_cache = None
 

@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Request, Response
 import core.database as db
 import core.config as cfg
+import core.schooltoday as schooltoday
 from core.bot_init import bot
 from core.utils import export_to_notion
 
@@ -51,6 +52,21 @@ async def task_export_notion(request: Request):
         logging.error(f"Notion Export Task error: {e}")
         return Response(status_code=500)
     
+@tasks_router.post("/schooltoday_enroll")
+async def task_schooltoday_enroll(request: Request):
+    """Воркер Cloud Tasks: синхронізує зарахованого студента з SchoolToday."""
+    try:
+        payload = await request.json()
+        doc_id = payload["doc_id"]
+        doc = await db.db.collection('Svitlo').document(doc_id).get()
+        svitlo_data = doc.to_dict()
+        pupil_payload = schooltoday.map_svitlo_to_pupil_payload(doc_id, svitlo_data)
+        await schooltoday.create_or_update_pupil(pupil_payload)
+        return Response(status_code=200)
+    except Exception as e:
+        logging.error(f"SchoolToday Enroll Task error: {e}")
+        return Response(status_code=500)
+
 @tasks_router.post("/delete_messages")
 async def task_delete_messages(request: Request):
     """Фонове видалення повідомлень без блокування вебхука"""

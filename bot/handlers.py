@@ -89,12 +89,14 @@ async def handle_dev_user_shared(message: Message):
     shared = message.users_shared
     target = shared.users[0]
 
+    username_part = f" (@{target.username})" if target.username else " (без юзернейму)"
+
     if shared.request_id == _DEV_ADD_REQUEST_ID:
-        await db.add_dev_id(target.user_id)
-        await message.answer(f"✅ Додано розробника: <code>{target.user_id}</code>", reply_markup=ReplyKeyboardRemove())
+        await db.add_dev_id(target.user_id, target.username)
+        await message.answer(f"✅ Додано розробника: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
     elif shared.request_id == _DEV_REMOVE_REQUEST_ID:
         await db.remove_dev_id(target.user_id)
-        await message.answer(f"🗑️ Прибрано з розробників: <code>{target.user_id}</code>", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"🗑️ Прибрано з розробників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
 
 # endregion =====================================================
 # region COMMANDS

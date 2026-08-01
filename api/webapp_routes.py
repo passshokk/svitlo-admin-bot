@@ -197,6 +197,18 @@ async def process_vision(
         await db.update_crm_stage(doc_id, "admin_review")
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
 
+        # Прибираємо технічні повідомлення сканера (interlude2 + інструкція), лишаючи чат чистим
+        try:
+            fsm_doc = await firestore_client.collection("FSM_Sessions").document(str(user_id)).get()
+            scanner_msg_ids = (fsm_doc.to_dict() or {}).get("data", {}).get("scanner_msg_ids", []) if fsm_doc.exists else []
+            for msg_id in scanner_msg_ids:
+                try:
+                    await bot.delete_message(chat_id=user_id, message_id=msg_id)
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.warning(f"Failed to cleanup scanner messages for {user_id}: {e}")
+
         # Server-Side Push: Сповіщаємо юзера про успіх
         try:
             await bot.send_message(
@@ -216,9 +228,13 @@ async def process_vision(
             phone = student_data.get('phone', 'Не вказано')
             display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
 
+            dup_id = student_data.get('possibleDuplicateId')
+            dup_warning = f"⚠️ <b>Можливий дублікат заявки:</b> <code>{dup_id}</code>\n\n" if dup_id else ""
+
             await bot.send_message(
                 chat_id=cfg.ADMIN_GROUP_ID,
                 text=(
+                    f"{dup_warning}\n"
                     f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
                     f"<b>Студент:</b> {full_name}\n"
                     f"<b>Група:</b> {age_group}\n"

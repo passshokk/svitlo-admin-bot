@@ -15,7 +15,8 @@ from core import utils as ut
 from bot.states import Registration
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
-from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX
+from api.task_manager import enqueue_task
+from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
 from core import config as cfg
 from bot.filters import IsDevFilter
 
@@ -108,7 +109,10 @@ async def process_first_name(message: Message, state: FSMContext):
     if not re.match(ENG_NAME_REGEX, first_name):
         await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
         return
-        
+    if ut.is_gibberish_name(first_name):
+        await message.answer("⚠️ Здається, це ім'я введено помилково. Будь ласка, введи своє справжнє ім'я англійською")
+        return
+
     await state.update_data(firstName=first_name)
     await state.set_state(Registration.entering_last_name)
     await message.answer(f"Thanks {first_name}!\n"
@@ -121,7 +125,10 @@ async def process_last_name(message: Message, state: FSMContext):
     if not re.match(ENG_NAME_REGEX, last_name):
         await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
         return
-        
+    if ut.is_gibberish_name(last_name):
+        await message.answer("⚠️ Здається, це прізвище введено помилково. Будь ласка, введи своє справжнє прізвище англійською")
+        return
+
     await state.update_data(lastName=last_name)
     data = await state.get_data()
     full_name = f"{data.get('firstName', '')} {last_name}"
@@ -179,12 +186,32 @@ async def process_dob(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2011)")
 
+async def _check_email_typo(message: Message, state: FSMContext, email: str, pending_key: str) -> bool:
+    """Якщо домен схожий на одруку в популярному провайдері (gmail.con тощо) — просить підтвердити.
+    Повертає True, якщо обробку слід зупинити (чекаємо на повторне підтвердження від юзера)."""
+    data = await state.get_data()
+    suggestion = ut.suggest_email_domain_fix(email)
+
+    if suggestion and data.get(pending_key) != email:
+        await state.update_data(**{pending_key: email})
+        await message.answer(
+            f"🤔 Здається, в домені пошти помилка. Може, ти мав(-ла) на увазі <code>{suggestion}</code>?\n\n"
+            f"Якщо це саме та адреса, яку ти хотів(-ла) вказати — надішли <code>{email}</code> ще раз:"
+        )
+        return True
+
+    if data.get(pending_key):
+        await state.update_data(**{pending_key: None})
+    return False
+
 # EMAIL -> ТЕЛЕФОН
 @reg_router.message(Registration.entering_email, F.text)
 async def process_email(message: Message, state: FSMContext):
     email = message.text.lower().strip()
     if not re.match(EMAIL_REGEX, email):
         await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
+        return
+    if await _check_email_typo(message, state, email, "emailTypoPending"):
         return
 
     await state.update_data(email=email)
@@ -247,6 +274,10 @@ async def process_country(message: Message, state: FSMContext):
         await message.answer("⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
         return
 
+    if not re.match(UKR_REGEX, country):
+        await message.answer("⚠️ Будь ласка, вкажи країну українською мовою (наприклад: Україна, Польща)")
+        return
+
     if ut.is_russian_country_input(country):
         await db.update_crm_stage(student['id'], "blocked")
         await db.clear_user_fsm(message.from_user.id)
@@ -260,7 +291,23 @@ async def process_country(message: Message, state: FSMContext):
 # МІСТО -> ВПО
 @reg_router.message(Registration.entering_city, F.text)
 async def process_city(message: Message, state: FSMContext):
-    await state.update_data(city=message.text.strip().title())
+    city = message.text.strip().title()
+    student = student_ctx.get()
+    if not student:
+        await message.answer("⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
+        return
+
+    if not re.match(UKR_REGEX, city):
+        await message.answer("⚠️ Будь ласка, вкажи місто чи село українською мовою")
+        return
+
+    if ut.is_russian_country_input(city):
+        await db.update_crm_stage(student['id'], "blocked")
+        await db.clear_user_fsm(message.from_user.id)
+        await message.answer("⚠️ Доступ до реєстрації в Svitlo School обмежено")
+        return
+
+    await state.update_data(city=city)
     await state.set_state(Registration.entering_displaced_bool)
     await message.answer(
         "<b>Чи довелося тобі змінити місце проживання через війну? 🕊</b>\n"
@@ -294,7 +341,12 @@ async def process_displaced_status(message: Message, state: FSMContext):
 # Область переміщених -> Батьки
 @reg_router.message(Registration.entering_displaced_region, F.text)
 async def process_displaced_region(message: Message, state: FSMContext):
-    await state.update_data(displacedRegion=message.text.strip().title())
+    region = message.text.strip().title()
+    if not re.match(UKR_REGEX, region):
+        await message.answer("⚠️ Будь ласка, вкажи область українською мовою")
+        return
+
+    await state.update_data(displacedRegion=region)
     await state.set_state(Registration.entering_parent_first_name)
     
     await message.answer(
@@ -307,13 +359,23 @@ async def process_displaced_region(message: Message, state: FSMContext):
 # БАТЬКИ (Ім'я -> Прізвище -> Email -> Телефон)
 @reg_router.message(Registration.entering_parent_first_name, F.text)
 async def process_parent_first_name(message: Message, state: FSMContext):
-    await state.update_data(parentFirstName=message.text.strip().title())
+    parent_first_name = message.text.strip().title()
+    if not re.match(UKR_REGEX, parent_first_name):
+        await message.answer("⚠️ Будь ласка, вкажи ім'я українською мовою")
+        return
+
+    await state.update_data(parentFirstName=parent_first_name)
     await state.set_state(Registration.entering_parent_last_name)
     await message.answer("Вкажи <b>прізвище одного з батьків/опікунів</b>:")
 
 @reg_router.message(Registration.entering_parent_last_name, F.text)
 async def process_parent_last_name(message: Message, state: FSMContext):
-    await state.update_data(parentLastName=message.text.strip().title())
+    parent_last_name = message.text.strip().title()
+    if not re.match(UKR_REGEX, parent_last_name):
+        await message.answer("⚠️ Будь ласка, вкажи прізвище українською мовою")
+        return
+
+    await state.update_data(parentLastName=parent_last_name)
     await state.set_state(Registration.entering_parent_email)
     await message.answer("Яка <b>електронна пошта в одного з твоїх батьків/опікунів?</b>")
 
@@ -323,7 +385,14 @@ async def process_parent_email(message: Message, state: FSMContext):
     if not re.match(EMAIL_REGEX, email):
         await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
         return
-    
+
+    data = await state.get_data()
+    if email == data.get('email'):
+        await message.answer("⚠️ Це та сама пошта, що і твоя особиста. Будь ласка, вкажи пошту одного з батьків/опікунів:")
+        return
+    if await _check_email_typo(message, state, email, "parentEmailTypoPending"):
+        return
+
     await state.update_data(parentEmail=email)
     await state.set_state(Registration.entering_parent_phone)
     await message.answer("І який <b>номер телефону в одного з твоїх батьків/опікунів?</b> Вкажи у міжнародному форматі (наприклад, +380...)")
@@ -335,7 +404,12 @@ async def process_parent_phone(message: Message, state: FSMContext):
     if not re.match(PHONE_REGEX, phone):
         await message.answer("⚠️ Некоректний формат. Введи номер у міжнародному форматі (+380...):")
         return
-        
+
+    data = await state.get_data()
+    if phone == data.get('phone'):
+        await message.answer("⚠️ Це той самий номер, що і твій особистий. Будь ласка, вкажи номер одного з батьків/опікунів (+380...):")
+        return
+
     await state.update_data(parentPhone=phone)
     await state.set_state(Registration.entering_lead_source)
     await message.answer("Дякую! 😊 Залишилось всього 2 запитання, і цей розділ завершено!")
@@ -396,7 +470,7 @@ async def _show_data_confirmation(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.set_state(Registration.confirming_data)
     
-    health_txt = f"Так ({data.get('healthIssuesDetails')})" if data.get('hasHealthIssues') else "Ні"
+    health_txt = f"Так ({ut.esc_html(data.get('healthIssuesDetails'))})" if data.get('hasHealthIssues') else "Ні"
     disp_txt = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
     dob_obj = data.get('birthDate')
     dob_str = dob_obj.strftime("%d.%m.%Y") if hasattr(dob_obj, "strftime") else "Не вказано"
@@ -462,12 +536,16 @@ async def process_field_edit(message: Message, state: FSMContext):
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
             return await message.answer("⚠️ Будь ласка, введи своє ім'я англійською мовою (як в закордонному паспорті)")
+        if ut.is_gibberish_name(val):
+            return await message.answer("⚠️ Здається, це ім'я введено помилково. Будь ласка, введи своє справжнє ім'я англійською")
         await state.update_data(firstName=val)
 
     elif field == "lastName":
         val = message.text.strip().title()
         if not re.match(ENG_NAME_REGEX, val):
             return await message.answer("⚠️ Будь ласка, введи своє прізвище англійською мовою (як в закордонному паспорті)")
+        if ut.is_gibberish_name(val):
+            return await message.answer("⚠️ Здається, це прізвище введено помилково. Будь ласка, введи своє справжнє прізвище англійською")
         await state.update_data(lastName=val)
 
     elif field == "birthDate":
@@ -487,13 +565,25 @@ async def process_field_edit(message: Message, state: FSMContext):
         val = message.text.lower().strip()
         if not re.match(EMAIL_REGEX, val):
             return await message.answer("⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
+        if await _check_email_typo(message, state, val, "editEmailTypoPending"):
+            return
         await state.update_data(email=val)
 
     elif field == "country":
-        await state.update_data(country=message.text.strip().title())
+        val = message.text.strip().title()
+        if not re.match(UKR_REGEX, val):
+            return await message.answer("⚠️ Будь ласка, вкажи країну українською мовою (наприклад: Україна, Польща)")
+        if ut.is_russian_country_input(val):
+            return await message.answer("⚠️ Доступ до реєстрації в Svitlo School обмежено")
+        await state.update_data(country=val)
 
     elif field == "city":
-        await state.update_data(city=message.text.strip().title())
+        val = message.text.strip().title()
+        if not re.match(UKR_REGEX, val):
+            return await message.answer("⚠️ Будь ласка, вкажи місто чи село українською мовою")
+        if ut.is_russian_country_input(val):
+            return await message.answer("⚠️ Доступ до реєстрації в Svitlo School обмежено")
+        await state.update_data(city=val)
 
     # Очищуємо поле та повертаємо користувача до підтвердження
     await state.update_data(editingField=None)
@@ -514,6 +604,12 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
         
     doc_id = student['id']
     await db.save_lead_profile(doc_id, data, "rules_matching")
+
+    # Антидубль-перевірка: інша анкета з тим самим email/телефоном -> позначаємо для куратора, не блокуємо
+    dup = await db.find_duplicate_applicant(doc_id, data.get('email', ''), data.get('phone', ''))
+    if dup:
+        await firestore_client.collection('Svitlo').document(doc_id).update({"possibleDuplicateId": dup['id']})
+
     await state.set_state(Registration.passing_rules)
 
     await message.edit_text(
@@ -586,8 +682,10 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         if student:
             await db.update_crm_stage(student['id'], "uploading_docs")
 
-        await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
-        await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
+        interlude_msg = await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
+        scanner_msg = await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
+        # Зберігаємо ID цих двох повідомлень, щоб прибрати їх з чату після успішного сканування
+        await state.update_data(scanner_msg_ids=[interlude_msg.message_id, scanner_msg.message_id])
         await state.set_state(Registration.uploading_docs)
 
 @reg_router.message(Command("testcam"))
@@ -620,7 +718,7 @@ async def admin_show_lead_details(callback: CallbackQuery):
         return
         
     data = doc.to_dict()
-    health_text = f"Так ({data.get('healthIssuesDetails')})" if data.get('hasHealthIssues') else "Ні"
+    health_text = f"Так ({ut.esc_html(data.get('healthIssuesDetails'))})" if data.get('hasHealthIssues') else "Ні"
 
     tg_username = data.get('telegramUsername', '').replace('@', '')
     phone = data.get('phone', 'Не вказано')
@@ -632,23 +730,27 @@ async def admin_show_lead_details(callback: CallbackQuery):
 
     displaced_info = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
 
+    dup_id = data.get('possibleDuplicateId')
+    dup_warning = f"⚠️ <b>Можливий дублікат заявки:</b> <code>{dup_id}</code>\n\n" if dup_id else ""
+
     detailed_text = (
+        f"{dup_warning}"
         f"<b>📋 Повна анкета: {data.get('firstName')} {data.get('lastName')}</b>\n\n"
         f"<b>Дата народження:</b> {dob_str} ({data.get('ageGroup')})\n"
         f"<b>Email:</b> {data.get('email')}\n"
         f"<b>Телефон:</b> {phone} | {display_username}\n"
         f"<b>Стать:</b> {data.get('gender')}\n"
         f"<b>Локація:</b> {data.get('city')}, {data.get('country')}\n"
-        f"<b>Джерело ліда:</b> {data.get('leadSource')}\n\n"
+        f"<b>Джерело ліда:</b> {ut.esc_html(data.get('leadSource'))}\n\n"
         f"<b>ВПО/біженець:</b> {displaced_info}\n"
         f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
         f"<b>Батьки:</b> {data.get('parentFirstName')} {data.get('parentLastName')}\n"
         f"<b>Контакти батьків:</b>\n{data.get('parentPhone')}\n{data.get('parentEmail')}\n\n"
-        f"<i>Документ перевірено ШІ: {data.get('aiDocType')}</i>"
+        f"<i>Документ перевірено ШІ: {ut.esc_html(data.get('aiDocType'))}</i>"
     )
-    
+
     keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=False)
-    
+
     await callback.answer()
     await callback.message.edit_text(detailed_text, reply_markup=keyboard)
 
@@ -722,8 +824,8 @@ async def admin_approve_lead(callback: CallbackQuery):
     )
     
 
-    # 3. TODO: Тут буде виклик SchoolToday API
-    
+    # 3. Асинхронно синхронізуємо студента з SchoolToday (через Cloud Tasks, щоб не блокувати вебхук)
+    await enqueue_task("/tasks/schooltoday_enroll", {"doc_id": doc_id})
 
     # 4. Надсилаємо студенту привітання та Lock Screen меню
     doc = await firestore_client.collection('Svitlo').document(doc_id).get()

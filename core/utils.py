@@ -1,4 +1,5 @@
 from datetime import datetime
+import html
 import os
 from zoneinfo import ZoneInfo
 import httpx
@@ -88,6 +89,63 @@ def is_russian_phone_number(phone: str) -> bool:
     if clean_phone.startswith(('+79', '+73', '+74', '+78', '89')):
         return True
     return False
+
+def is_gibberish_name(name: str) -> bool:
+    """Евристика для відсіювання явно фейкових імен: без жодної голосної або з довгим повтором однієї літери (напр. 'Xzcvbn', 'Aaaaaa')"""
+    lower = name.lower()
+    if not re.search(r'[aeiou]', lower):
+        return True
+    if re.search(r'(.)\1{2,}', lower):
+        return True
+    return False
+
+def esc_html(value) -> str:
+    """Екранує довільний текст користувача перед вставкою у HTML-повідомлення (parse_mode='HTML' за замовчуванням)"""
+    if not value:
+        return value
+    return html.escape(str(value), quote=False)
+
+def _levenshtein(a: str, b: str) -> int:
+    """Класична відстань Левенштейна (кількість правок, щоб перетворити a на b)"""
+    if a == b:
+        return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            curr[j] = min(
+                prev[j] + 1,                 # видалення
+                curr[j - 1] + 1,             # вставка
+                prev[j - 1] + (ca != cb),    # заміна
+            )
+        prev = curr
+    return prev[-1]
+
+def suggest_email_domain_fix(email: str) -> str | None:
+    """
+    Якщо домен email схожий, але не ідентичний, на один з популярних (cfg.TRUSTED_EMAIL_DOMAINS),
+    повертає виправлений варіант email (напр. gmail.con -> gmail.com). Інакше — None.
+    Толерантність до похибки: 1 символ для коротких доменів (<=6), 2 символи для довших —
+    щоб не плодити хибні збіги на коротких доменах на кшталт i.ua.
+    """
+    if "@" not in email:
+        return None
+    local_part, domain = email.rsplit("@", 1)
+    if domain in cfg.TRUSTED_EMAIL_DOMAINS:
+        return None
+
+    best_domain, best_dist = None, None
+    for trusted in cfg.TRUSTED_EMAIL_DOMAINS:
+        if abs(len(domain) - len(trusted)) > 2:
+            continue
+        dist = _levenshtein(domain, trusted)
+        threshold = 1 if len(trusted) <= 6 else 2
+        if dist == 0 or dist > threshold:
+            continue
+        if best_dist is None or dist < best_dist:
+            best_domain, best_dist = trusted, dist
+
+    return f"{local_part}@{best_domain}" if best_domain else None
 
 # endregion ==========================================================================
 # region Notion

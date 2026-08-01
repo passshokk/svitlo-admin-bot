@@ -287,7 +287,7 @@ def get_user_picker_kb(request_id: int) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(
             text="👤 Обрати користувача",
-            request_users=KeyboardButtonRequestUsers(request_id=request_id, max_quantity=1, user_is_bot=False)
+            request_users=KeyboardButtonRequestUsers(request_id=request_id, max_quantity=1, user_is_bot=False, request_username=True)
         )]],
         resize_keyboard=True,
         one_time_keyboard=True

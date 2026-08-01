@@ -22,6 +22,14 @@ MAIN_CURATOR_USERNAME = "@passshokk"
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 PHONE_REGEX = r'^\+[1-9]\d{7,14}$'
 ENG_NAME_REGEX = r'^[A-Za-z\s\-\']{2,20}$'
+# Українська кирилиця (без ъ/ы/э, які належать лише російському алфавіту) для полів на кшталт міста, країни, ПІБ батьків
+UKR_REGEX = r"^[А-Ща-щЬьЮюЯяҐґЄєІіЇї'’\-\s]{2,50}$"
+
+# Найпопулярніші поштові домени серед українських заявників — база для типо-перевірки email (core.utils.suggest_email_domain_fix)
+TRUSTED_EMAIL_DOMAINS = {
+    "gmail.com", "ukr.net", "i.ua", "meta.ua", "outlook.com",
+    "hotmail.com", "yahoo.com", "icloud.com", "protonmail.com", "gmx.com", "live.com",
+}
 
 ROLE_MAP = {
     "itt": "💻 ITT member",
