@@ -321,58 +321,56 @@ async def set_user_fsm_state(user_id: int | str, state_str: str):
 # ==========================
 # region --- Tester Access Control
 
-_TESTER_IDS_DOC = ("Config", "bot_settings")
+_TESTERS_DOC = ("Config", "bot_settings")
 
-async def _get_tester_doc_data() -> dict:
-    """Читає документ Config/bot_settings. Якщо там ще лежить лише legacy-поле dev_ids
-    (з часів до перейменування), одноразово мігрує його в tester_ids/tester_usernames."""
-    doc_ref = db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1])
+async def _get_testers_map() -> dict[str, str | None]:
+    """Повертає {str(tg_id): username} з єдиного поля testers у Config/bot_settings.
+    Якщо поля testers ще нема, а лежать лише старі формати (tester_ids/tester_usernames
+    або зовсім legacy dev_ids/dev_usernames) — одноразово збирає їх в testers і чистить старі поля."""
+    doc_ref = db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1])
     doc = await doc_ref.get()
     data = doc.to_dict() if doc.exists else {}
 
-    if "tester_ids" not in data and "dev_ids" in data:
-        legacy_ids = data.get("dev_ids", [])
-        legacy_usernames = data.get("dev_usernames", {})
-        await doc_ref.set(
-            {"tester_ids": legacy_ids, "tester_usernames": legacy_usernames},
-            merge=True,
-        )
-        data["tester_ids"] = legacy_ids
-        data["tester_usernames"] = legacy_usernames
+    if "testers" in data:
+        return data["testers"]
 
-    return data
+    legacy_ids = data.get("tester_ids") or data.get("dev_ids") or []
+    legacy_usernames = data.get("tester_usernames") or data.get("dev_usernames") or {}
+    testers = {str(tg_id): legacy_usernames.get(str(tg_id)) for tg_id in legacy_ids}
+
+    await doc_ref.set(
+        {
+            "testers": testers,
+            "tester_ids": firestore.DELETE_FIELD,
+            "tester_usernames": firestore.DELETE_FIELD,
+            "dev_ids": firestore.DELETE_FIELD,
+            "dev_usernames": firestore.DELETE_FIELD,
+        },
+        merge=True,
+    )
+    return testers
 
 async def get_tester_ids() -> set[int]:
-    """Повертає telegram ID тестувальників з Firestore. Без кешу: у serverless середовищі
-    інстанси не гарантовано переживають між викликами, тож кеш в пам'яті лише вводив би в оману."""
-    data = await _get_tester_doc_data()
-    return set(data.get("tester_ids", []))
+    """Повертає telegram ID тестувальників з Firestore."""
+    testers = await _get_testers_map()
+    return {int(tg_id) for tg_id in testers}
 
 async def get_testers() -> dict[int, str | None]:
     """Повертає {tg_id: username} для показу списку тестувальників (/testers)."""
-    data = await _get_tester_doc_data()
-    ids = data.get("tester_ids", [])
-    usernames = data.get("tester_usernames", {})
-    return {tg_id: usernames.get(str(tg_id)) for tg_id in ids}
+    testers = await _get_testers_map()
+    return {int(tg_id): username for tg_id, username in testers.items()}
 
 async def add_tester_id(tg_id: int, username: str | None = None):
-    """Додає telegram ID до списку тестувальників. Діє одразу, без редеплою коду.
-    username фіксується станом на момент додавання (для відображення в /testers)."""
-    await db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1]).set(
-        {
-            "tester_ids": firestore.ArrayUnion([tg_id]),
-            f"tester_usernames.{tg_id}": username,
-        },
+    """Додає пару (tg_id, username) до списку тестувальників."""
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
+        {f"testers.{tg_id}": username},
         merge=True,
     )
 
 async def remove_tester_id(tg_id: int):
-    """Прибирає telegram ID зі списку тестувальників."""
-    await db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1]).update(
-        {
-            "tester_ids": firestore.ArrayRemove([tg_id]),
-            f"tester_usernames.{tg_id}": firestore.DELETE_FIELD,
-        }
+    """Прибирає пару (tg_id, username) зі списку тестувальників."""
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).update(
+        {f"testers.{tg_id}": firestore.DELETE_FIELD}
     )
 
 # endregion

@@ -296,7 +296,7 @@ def get_user_picker_kb(request_id: int) -> ReplyKeyboardMarkup:
 def get_testers_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[
-            InlineKeyboardButton(text="➕ Добавити тестувальника", callback_data="testers_add"),
-            InlineKeyboardButton(text="➖ Забрати тестувальника", callback_data="testers_remove"),
+            InlineKeyboardButton(text="➕ Добавити", callback_data="testers_add"),
+            InlineKeyboardButton(text="➖ Забрати", callback_data="testers_remove"),
         ]]
     )

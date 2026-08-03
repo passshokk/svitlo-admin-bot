@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from core import database as db
 
 class IsTesterFilter(BaseFilter):
-    """Пускає лише тестувальників. Список ID тягнеться з Firestore (Config/bot_settings.tester_ids),
+    """Пускає лише тестувальників. Список ID тягнеться з Firestore (Config/bot_settings.testers),
     тож додавання нового тестувальника не потребує редеплою коду."""
     async def __call__(self, event: Message | CallbackQuery) -> bool:
         return event.from_user.id in await db.get_tester_ids()
