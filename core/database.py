@@ -3,7 +3,6 @@ import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 import uuid
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from google.api_core.exceptions import AlreadyExists
@@ -320,49 +319,60 @@ async def set_user_fsm_state(user_id: int | str, state_str: str):
 # endregion
 
 # ==========================
-# region --- Dev Access Control
+# region --- Tester Access Control
 
-_DEV_IDS_DOC = ("Config", "bot_settings")
-_DEV_IDS_TTL = 60 # секунд
+_TESTER_IDS_DOC = ("Config", "bot_settings")
 
-_dev_ids_cache: set[int] | None = None
-_dev_ids_cache_ts: float = 0.0
+async def _get_tester_doc_data() -> dict:
+    """Читає документ Config/bot_settings. Якщо там ще лежить лише legacy-поле dev_ids
+    (з часів до перейменування), одноразово мігрує його в tester_ids/tester_usernames."""
+    doc_ref = db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1])
+    doc = await doc_ref.get()
+    data = doc.to_dict() if doc.exists else {}
 
-async def get_dev_ids() -> set[int]:
-    """Повертає telegram ID розробників з Firestore (з кешем на 60с, щоб не бити БД на кожне повідомлення)."""
-    global _dev_ids_cache, _dev_ids_cache_ts
-    now = time.monotonic()
-    if _dev_ids_cache is not None and (now - _dev_ids_cache_ts) < _DEV_IDS_TTL:
-        return _dev_ids_cache
+    if "tester_ids" not in data and "dev_ids" in data:
+        legacy_ids = data.get("dev_ids", [])
+        legacy_usernames = data.get("dev_usernames", {})
+        await doc_ref.set(
+            {"tester_ids": legacy_ids, "tester_usernames": legacy_usernames},
+            merge=True,
+        )
+        data["tester_ids"] = legacy_ids
+        data["tester_usernames"] = legacy_usernames
 
-    doc = await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).get()
-    ids = doc.to_dict().get("dev_ids", []) if doc.exists else []
-    _dev_ids_cache = set(ids)
-    _dev_ids_cache_ts = now
-    return _dev_ids_cache
+    return data
 
-async def add_dev_id(tg_id: int, username: str | None = None):
-    """Додає telegram ID до списку розробників. Діє одразу, без редеплою коду.
-    username фіксується станом на момент додавання (для відображення в /adddev, /removedev)."""
-    global _dev_ids_cache
-    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).set(
+async def get_tester_ids() -> set[int]:
+    """Повертає telegram ID тестувальників з Firestore. Без кешу: у serverless середовищі
+    інстанси не гарантовано переживають між викликами, тож кеш в пам'яті лише вводив би в оману."""
+    data = await _get_tester_doc_data()
+    return set(data.get("tester_ids", []))
+
+async def get_testers() -> dict[int, str | None]:
+    """Повертає {tg_id: username} для показу списку тестувальників (/testers)."""
+    data = await _get_tester_doc_data()
+    ids = data.get("tester_ids", [])
+    usernames = data.get("tester_usernames", {})
+    return {tg_id: usernames.get(str(tg_id)) for tg_id in ids}
+
+async def add_tester_id(tg_id: int, username: str | None = None):
+    """Додає telegram ID до списку тестувальників. Діє одразу, без редеплою коду.
+    username фіксується станом на момент додавання (для відображення в /testers)."""
+    await db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1]).set(
         {
-            "dev_ids": firestore.ArrayUnion([tg_id]),
-            f"dev_usernames.{tg_id}": username,
+            "tester_ids": firestore.ArrayUnion([tg_id]),
+            f"tester_usernames.{tg_id}": username,
         },
         merge=True,
     )
-    _dev_ids_cache = None
 
-async def remove_dev_id(tg_id: int):
-    """Прибирає telegram ID зі списку розробників."""
-    global _dev_ids_cache
-    await db.collection(_DEV_IDS_DOC[0]).document(_DEV_IDS_DOC[1]).update(
+async def remove_tester_id(tg_id: int):
+    """Прибирає telegram ID зі списку тестувальників."""
+    await db.collection(_TESTER_IDS_DOC[0]).document(_TESTER_IDS_DOC[1]).update(
         {
-            "dev_ids": firestore.ArrayRemove([tg_id]),
-            f"dev_usernames.{tg_id}": firestore.DELETE_FIELD,
+            "tester_ids": firestore.ArrayRemove([tg_id]),
+            f"tester_usernames.{tg_id}": firestore.DELETE_FIELD,
         }
     )
-    _dev_ids_cache = None
 
 # endregion

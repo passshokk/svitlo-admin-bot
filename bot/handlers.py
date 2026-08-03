@@ -19,11 +19,11 @@ from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
 from bot.reg_funnel import reg_router
-from bot.filters import ActiveTicketFilter, IsDevFilter
+from bot.filters import ActiveTicketFilter, IsTesterFilter
 
 # region ROUTER --------------------------------
 
-dev_router = Router()
+tester_router = Router()
 private_router = Router()
 public_router = Router()
 fallback_router = Router()
@@ -33,9 +33,9 @@ private_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CUR
 public_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.CURATOR_GROUP_ID))
 private_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
 public_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.CURATOR_GROUP_ID))
-# Фільтр: пускати в dev_router ТІЛЬКИ розробників
-dev_router.message.filter(IsDevFilter(), F.chat.type == "private")
-dev_router.callback_query.filter(IsDevFilter(), F.message.chat.type == "private")
+# Фільтр: пускати в tester_router ТІЛЬКИ тестувальників
+tester_router.message.filter(IsTesterFilter(), F.chat.type == "private")
+tester_router.callback_query.filter(IsTesterFilter(), F.message.chat.type == "private")
 
 private_router.message.middleware(RequireAuthMiddleware())
 private_router.callback_query.middleware(RequireAuthMiddleware())
@@ -43,8 +43,8 @@ private_router.callback_query.middleware(RequireAuthMiddleware())
 # MAIN ROUTER AGGREGATOR & HIERARCHY
 tg_router = Router()
 
-#1. Розробницький роутер (для тестів)
-tg_router.include_router(dev_router)
+#1. Тестерський роутер (для тестів)
+tg_router.include_router(tester_router)
 
 # 2. Воронка реєстрації - поки на тесті
 tg_router.include_router(reg_router)
@@ -63,40 +63,67 @@ tg_router.include_router(fallback_router)
 
 
 # endregion =====================================================
-# region ADMIN: Dev Access Management
+# region ADMIN: Tester Access Management
 # ===============================================================
-# /adddev, /removedev: дев кидає юзера через нативний пікер Telegram (без потреби мати його в контактах)
+# /testers: власник обирає "Добавити"/"Забрати" під повідомленням, тоді кидає юзера
+# через нативний пікер Telegram (без потреби мати його в контактах)
 
-_DEV_ADD_REQUEST_ID = 1001
-_DEV_REMOVE_REQUEST_ID = 1002
+_TESTER_ADD_REQUEST_ID = 1001
+_TESTER_REMOVE_REQUEST_ID = 1002
 
-@dev_router.message(Command("adddev"), F.from_user.id == cfg.OWNER_ID)
-async def cmd_add_dev(message: Message):
+async def _format_testers_list() -> str:
+    testers = await db.get_testers()
+    if not testers:
+        return "Список тестувальників порожній."
+    lines = [
+        f"• <code>{tg_id}</code>" + (f" (@{username})" if username else "")
+        for tg_id, username in testers.items()
+    ]
+    return "Тестувальники:\n" + "\n".join(lines)
+
+@tester_router.message(Command("testers"), F.from_user.id == cfg.OWNER_ID)
+async def cmd_testers(message: Message):
+    testers_list = await _format_testers_list()
     await message.answer(
-        "Обери користувача, якого зробити розробником:",
-        reply_markup=kb.get_user_picker_kb(_DEV_ADD_REQUEST_ID)
+        f"{testers_list}\n\nКерування тестувальниками:",
+        reply_markup=kb.get_testers_menu_kb()
     )
 
-@dev_router.message(Command("removedev"), F.from_user.id == cfg.OWNER_ID)
-async def cmd_remove_dev(message: Message):
-    await message.answer(
-        "Обери користувача, якого прибрати зі списку розробників:",
-        reply_markup=kb.get_user_picker_kb(_DEV_REMOVE_REQUEST_ID)
+@tester_router.callback_query(F.data == "testers_add", F.from_user.id == cfg.OWNER_ID)
+async def cb_testers_add(callback: CallbackQuery):
+    await callback.message.answer(
+        "Обери користувача, якого зробити тестувальником:",
+        reply_markup=kb.get_user_picker_kb(_TESTER_ADD_REQUEST_ID)
     )
+    await callback.answer()
 
-@dev_router.message(F.users_shared, F.from_user.id == cfg.OWNER_ID)
-async def handle_dev_user_shared(message: Message):
+@tester_router.callback_query(F.data == "testers_remove", F.from_user.id == cfg.OWNER_ID)
+async def cb_testers_remove(callback: CallbackQuery):
+    await callback.message.answer(
+        "Обери користувача, якого прибрати зі списку тестувальників:",
+        reply_markup=kb.get_user_picker_kb(_TESTER_REMOVE_REQUEST_ID)
+    )
+    await callback.answer()
+
+@tester_router.message(F.users_shared, F.from_user.id == cfg.OWNER_ID)
+async def handle_tester_user_shared(message: Message):
     shared = message.users_shared
     target = shared.users[0]
 
     username_part = f" (@{target.username})" if target.username else " (без юзернейму)"
 
-    if shared.request_id == _DEV_ADD_REQUEST_ID:
-        await db.add_dev_id(target.user_id, target.username)
-        await message.answer(f"✅ Додано розробника: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
-    elif shared.request_id == _DEV_REMOVE_REQUEST_ID:
-        await db.remove_dev_id(target.user_id)
-        await message.answer(f"🗑️ Прибрано з розробників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
+    if shared.request_id == _TESTER_ADD_REQUEST_ID:
+        if target.user_id in await db.get_tester_ids():
+            await message.answer(f"⚠️ Вже є в списку тестувальників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
+            return
+        await db.add_tester_id(target.user_id, target.username)
+        await message.answer(f"✅ Додано тестувальника: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
+    elif shared.request_id == _TESTER_REMOVE_REQUEST_ID:
+        if target.user_id not in await db.get_tester_ids():
+            await message.answer(f"⚠️ Немає в списку тестувальників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
+            return
+        await db.remove_tester_id(target.user_id)
+        await message.answer(f"🗑️ Прибрано з тестувальників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
 
 # endregion =====================================================
 # region COMMANDS

@@ -35,7 +35,7 @@ def get_profile_text(data: dict) -> str:
     if sem == "prior_semesters":
         joined = "many centuries ago..."
     else:
-        joined = f"in {sem.split('_')[0]} semester 20{sem.split('_')[2]}"
+        joined = f"in {sem.split('_')[0]} semester 20{sem.split('_')[1]}"
         
     user_roles = data.get("roles", [])
 
@@ -230,12 +230,11 @@ async def export_to_notion(ticket_data: dict):
 # ====================================================================================
 
 async def setup_owner_commands(bot) -> None:
-    """Додає /adddev, /removedev у меню "/" лише в чаті власника (cfg.OWNER_ID), поверх його звичайних команд.
-    Інші розробники їх у меню не бачать (хоча самі команди все одно захищені фільтром на рівні хендлера)."""
+    """Додає /testers у меню "/" лише в чаті власника (cfg.OWNER_ID), поверх його звичайних команд.
+    Тестувальники її у меню не бачать (хоча сама команда все одно захищена фільтром на рівні хендлера)."""
     default_commands = await bot.get_my_commands()
     owner_commands = [
-        BotCommand(command="adddev", description="➕ Додати розробника"),
-        BotCommand(command="removedev", description="➖ Прибрати розробника"),
+        BotCommand(command="testers", description="🧪 Тестувальники"),
     ] + default_commands
     await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=cfg.OWNER_ID))
 
