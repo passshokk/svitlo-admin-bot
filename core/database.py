@@ -327,7 +327,7 @@ async def _get_testers_map() -> dict[str, str | None]:
     """Повертає {str(tg_id): username} з єдиного поля testers у Config/bot_settings.
     Якщо поля testers ще нема, а лежать лише старі формати (tester_ids/tester_usernames
     або зовсім legacy dev_ids/dev_usernames) — одноразово збирає їх в testers і чистить старі поля."""
-    doc = db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
+    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
     data = doc.to_dict() if doc.exists else {}
     if "testers" in data:
         return data["testers"]
