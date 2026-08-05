@@ -324,13 +324,10 @@ async def set_user_fsm_state(user_id: int | str, state_str: str):
 _TESTERS_DOC = ("Config", "bot_settings")
 
 async def _get_testers_map() -> dict[str, str | None]:
-    """Повертає {str(tg_id): username} з єдиного поля testers у Config/bot_settings.
-    Якщо поля testers ще нема, а лежать лише старі формати (tester_ids/tester_usernames
-    або зовсім legacy dev_ids/dev_usernames) — одноразово збирає їх в testers і чистить старі поля."""
+    """Повертає {str(tg_id): username} з поля testers у Config/bot_settings (порожній dict, якщо поля ще нема)."""
     doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
     data = doc.to_dict() if doc.exists else {}
-    if "testers" in data:
-        return data["testers"]
+    return data.get("testers") or {}
 
 async def get_tester_ids() -> set[int]:
     """Повертає telegram ID тестувальників з Firestore."""
@@ -345,14 +342,14 @@ async def get_testers() -> dict[int, str | None]:
 async def add_tester_id(tg_id: int, username: str | None = None):
     """Додає пару (tg_id, username) до списку тестувальників."""
     await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"testers": {str(tg_id): username}},
+        {f"testers.{tg_id}": username},
         merge=True,
     )
 
 async def remove_tester_id(tg_id: int):
     """Прибирає пару (tg_id, username) зі списку тестувальників."""
     await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).update(
-        {"testers": {str(tg_id): firestore.DELETE_FIELD}}
+        {f"testers.{tg_id}": firestore.DELETE_FIELD}
     )
 
 # endregion
