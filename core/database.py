@@ -340,9 +340,13 @@ async def get_testers() -> dict[int, str | None]:
     return {int(tg_id): username for tg_id, username in testers.items()}
 
 async def add_tester_id(tg_id: int, username: str | None = None):
-    """Додає пару (tg_id, username) до списку тестувальників."""
+    """Додає пару (tg_id, username) до списку тестувальників.
+    Важливо: тут потрібен саме вкладений dict, а не крапкова строка-ключ.
+    set(merge=True) мерджить вкладені dict-и структурно, але НЕ парсить крапку в ключі
+    (на відміну від update()) — інакше замість testers.{id} у мапі testers
+    вийде буквальне плоске поле з ім'ям "testers.{id}"."""
     await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {f"testers.{tg_id}": username},
+        {"testers": {str(tg_id): username}},
         merge=True,
     )
 
