@@ -118,12 +118,15 @@ def format_ai_info_block(ai_info: dict) -> str:
     confidence = ai_info.get("confidence")
     confidence_txt = f"{int(confidence * 100)}%" if isinstance(confidence, (int, float)) else "н/д"
 
-    name_part = " ".join(p for p in [esc_html(ai_info.get("firstName")), esc_html(ai_info.get("lastName"))] if p) or "не вдалося зчитати"
+    first_name = (ai_info.get("firstName") or "").title()
+    last_name = (ai_info.get("lastName") or "").title()
+    name_part = " ".join(p for p in [esc_html(first_name), esc_html(last_name)] if p) or "не вдалося зчитати"
     dob_part = esc_html(ai_info.get("birthDate")) or "не вдалося зчитати"
 
     return (
-        f"Тип документа: {doc_type} (Точність: {confidence_txt})\n"
-        f"Зчитано з документа: {name_part}, ДН: {dob_part}"
+        f"<b>AI DOCUMENT REVIEW</b>\n"
+        f"Тип: {doc_type} (точність: {confidence_txt})\n"
+        f"Ім'я: {name_part}\nДН: {dob_part}"
     )
 
 def esc_html(value) -> str:

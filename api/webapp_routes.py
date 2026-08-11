@@ -237,7 +237,9 @@ async def process_vision(
             keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
 
             full_name = f"{student_data.get('firstName', '')} {student_data.get('lastName', '')}"
-            age_group = "Older (14-18)" if student_data.get('ageGroup') == "older" else "Younger (10-13)"
+            dob = student_data.get('birthDate')
+            dob_str = dob.strftime("%d.%m.%Y") if hasattr(dob, 'strftime') else (dob or 'Не вказано')
+            age_group = f"Older ({dob_str})" if student_data.get('ageGroup') == "older" else f"Younger ({dob_str})"
             phone = student_data.get('phone', 'Не вказано')
             display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
 
@@ -253,9 +255,8 @@ async def process_vision(
                     f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
                     f"<b>Студент:</b> {full_name}\n"
                     f"<b>Група:</b> {age_group}\n"
-                    f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
-                    f"{ai_info_block}\n"
-                    f"<i>⚠️ Це сира відповідь ШІ, звір із даними анкети сам</i>\n\n"
+                    f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n\n"
+                    f"{ai_info_block}\n\n"
                     f"Очікує рішення куратора:"
                 ),
                 reply_markup=keyboard

@@ -62,7 +62,7 @@ def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
 
 def get_data_confirmation_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Все правильно, йдемо далі", callback_data="confirm_data_success", style="success")
+    builder.button(text="✅ Усе правильно, йдемо далі", callback_data="confirm_data_success", style="success")
     builder.button(text="✍️ Змінити певні дані", callback_data="confirm_data_edit", style="primary")
     builder.adjust(1)
     return builder.as_markup()
@@ -133,7 +133,7 @@ def get_admin_action_kb(doc_id: str, tg_username: str, include_details_btn: bool
 def get_admin_confirm_block_kb(doc_id: str) -> InlineKeyboardMarkup:
     """Клавіатура підтвердження видалення ліда (захист від міскліку)"""
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚠️ Так, точно відхилити", callback_data=f"lead_block_{doc_id}")
+    builder.button(text="Так, точно відхилити", callback_data=f"lead_block_{doc_id}")
     builder.button(text="🔙 Скасувати", callback_data=f"lead_details_{doc_id}")
     
     builder.adjust(1)
