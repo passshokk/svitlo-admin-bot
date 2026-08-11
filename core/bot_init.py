@@ -15,7 +15,7 @@ if not WEBHOOK_SECRET:
     raise ValueError("WEBHOOK_SECRET is missing in environment variables")
 
 bot = Bot(
-    token=BOT_TOKEN, 
+    token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
 )
 

@@ -4,9 +4,19 @@ import os
 from zoneinfo import ZoneInfo
 import httpx
 import re
-from aiogram.types import BotCommand, BotCommandScopeChat
+from aiogram.types import BotCommand, BotCommandScopeChat, Message
 
 from core import config as cfg
+
+# ====================================================================================
+# region Messaging
+# ====================================================================================
+
+async def step_answer(target: Message, text: str, **kwargs) -> Message:
+    """Відповідає без звуку/вібро. Для повторюваних кроків анкети (питання, виправлення
+    вводу) — щоб каскад технічних повідомлень під час реєстрації не провокував мут бота"""
+    kwargs.setdefault("disable_notification", True)
+    return await target.answer(text, **kwargs)
 
 # ====================================================================================
 # region Format & Check
@@ -98,6 +108,23 @@ def is_gibberish_name(name: str) -> bool:
     if re.search(r'(.)\1{2,}', lower):
         return True
     return False
+
+def format_ai_info_block(ai_info: dict) -> str:
+    """Форматує весь блок ШІ-аналізу документа (тип, впевненість, зчитані ім'я/прізвище/ДН)
+    для показу куратору. Без жодної автоматичної звірки з анкетою — рішення лишається за куратором."""
+    ai_info = ai_info or {}
+
+    doc_type = esc_html(ai_info.get("docType")) or "невідомо"
+    confidence = ai_info.get("confidence")
+    confidence_txt = f"{int(confidence * 100)}%" if isinstance(confidence, (int, float)) else "н/д"
+
+    name_part = " ".join(p for p in [esc_html(ai_info.get("firstName")), esc_html(ai_info.get("lastName"))] if p) or "не вдалося зчитати"
+    dob_part = esc_html(ai_info.get("birthDate")) or "не вдалося зчитати"
+
+    return (
+        f"Тип документа: {doc_type} (Точність: {confidence_txt})\n"
+        f"Зчитано з документа: {name_part}, ДН: {dob_part}"
+    )
 
 def esc_html(value) -> str:
     """Екранує довільний текст користувача перед вставкою у HTML-повідомлення (parse_mode='HTML' за замовчуванням)"""

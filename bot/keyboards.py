@@ -83,12 +83,12 @@ def get_edit_fields_kb() -> InlineKeyboardMarkup:
 
 def get_rules_start_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="📗 Ознайомитися з правилами", callback_data="rules_start")
+    builder.button(text="📗 Ознайомитися з правилами", callback_data="rules_start", style="success")
     return builder.as_markup()
 
 def get_quiz_start_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Прочитано. Почати квіз!", callback_data="quiz_start")
+    builder.button(text="✅ Прочитано. Почати квіз!", callback_data="quiz_start", style="primary")
     return builder.as_markup()
 
 def get_quiz_kb(options: list) -> InlineKeyboardMarkup:

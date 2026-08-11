@@ -3,10 +3,8 @@ import os
 import logging
 import httpx
 
-SCHOOL_TODAY_API_BASE_URL = os.getenv("SCHOOL_TODAY_API_BASE_URL")
+SCHOOL_TODAY_API_BASE_URL = "https://school-today.com"
 SCHOOL_TODAY_API_KEY = os.getenv("SCHOOL_TODAY_API_KEY")
-if not SCHOOL_TODAY_API_BASE_URL:
-    raise ValueError("SCHOOL_TODAY_API_BASE_URL is missing in environment variables.")
 if not SCHOOL_TODAY_API_KEY:
     raise ValueError("SCHOOL_TODAY_API_KEY is missing in environment variables.")
 
@@ -34,15 +32,26 @@ async def get_custom_fields() -> list[dict]:
         return data.get("customFields", [])
 
 
+async def get_pupils() -> list[dict]:
+    """GET /v1/Pupils — усі учні школи."""
+    url = f"{SCHOOL_TODAY_API_BASE_URL.rstrip('/')}/v1/Pupils"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=_HEADERS, timeout=60)
+        if response.status_code != 200:
+            logging.error(f"SchoolToday get_pupils error: {response.text}")
+        response.raise_for_status()
+        return response.json().get("pupils", [])
+
+
 async def get_pupil(pupil_id: int) -> dict:
-    """GET /v1/Pupils/{id} — дані одного учня."""
+    """GET /v1/Pupils/{id} — дані одного учня (API загортає їх у ключ `pupil`)."""
     url = f"{SCHOOL_TODAY_API_BASE_URL.rstrip('/')}/v1/Pupils/{pupil_id}"
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=_HEADERS)
         if response.status_code != 200:
             logging.error(f"SchoolToday get_pupil error: {response.text}")
         response.raise_for_status()
-        return response.json()
+        return response.json().get("pupil", {})
 
 
 async def create_or_update_pupil(payload: dict, pupil_id: int = 0) -> dict:

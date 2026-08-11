@@ -135,7 +135,7 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         "rulesMistakes": 0,
 
         # 🤖 AI Verification
-        "aiDocType": "",
+        "aiInfo": {},
 
         # 🔁 Anti-duplicate
         "possibleDuplicateId": "",

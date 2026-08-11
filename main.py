@@ -7,7 +7,7 @@ from aiogram import types
 from core.bot_init import bot, dp, WEBHOOK_SECRET
 from bot.handlers import tg_router
 from api.task_routes import tasks_router
-from bot.middleware import LoadDataMiddleware
+from bot.middleware import LoadDataMiddleware, TicketConflictNoticeMiddleware
 from api.webapp_routes import webapp_router
 from core import utils as ut
 
@@ -24,6 +24,7 @@ logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 
 # Реєструємо middlewares та хендлери для Telegram
 dp.update.outer_middleware(LoadDataMiddleware())
+dp.message.outer_middleware(TicketConflictNoticeMiddleware())
 dp.include_router(tg_router)
 
 

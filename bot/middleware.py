@@ -104,3 +104,29 @@ class RequireAuthMiddleware(BaseMiddleware):
         elif isinstance(event, CallbackQuery):
             await event.answer("⚠️ Доступ лише для діючих студентів. Будь ласка, заверши реєстрацію", show_alert=True)
         return
+
+
+class TicketConflictNoticeMiddleware(BaseMiddleware):
+    """
+    Попереджає юзера, якщо в нього є відкритий тікет підтримки, але зараз він у
+    сторонньому FSM-стані (наприклад реєстрація) — в такому разі ActiveTicketFilter
+    (bot/filters.py) не пропустить його повідомлення куратору, воно піде в хендлер
+    поточного кроку. Без цього попередження юзер думає, що написав куратору,
+    а насправді повідомлення тихо загубилось.
+    """
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        if isinstance(event, Message) and event.chat.type == "private":
+            is_help_command = bool(event.text) and event.text.startswith("/help")
+            if not is_help_command:
+                state: FSMContext = data.get("state")
+                if state:
+                    current_state = await state.get_state()
+                    if current_state is not None:
+                        active_ticket = await db.get_active_ticket(event.from_user.id)
+                        if active_ticket:
+                            await event.answer(
+                                "ℹ️ У тебе є активне звернення в підтримку, але зараз ти в іншому кроці боту — "
+                                "це повідомлення до куратора не потрапить.\n"
+                                "Заверши поточний крок, або напиши /help, щоб переключитись на звернення."
+                            )
+        return await handler(event, data)

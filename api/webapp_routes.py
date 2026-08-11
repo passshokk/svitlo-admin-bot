@@ -23,6 +23,7 @@ from core.database import db as firestore_client
 from core.bot_init import bot
 from core import config as cfg
 from core.constants import APPLICATION_RECEIVED_MSG
+from core.utils import format_ai_info_block
 
 # Приховує конкретний спам-варнінг Vertex AI SDK про rest_asyncio fallback на grpc
 class _SuppressVertexAsyncRestWarning(logging.Filter):
@@ -137,9 +138,9 @@ async def process_vision(
     # 5. Валідація самого файлу до того, як він піде в Vertex AI
     image_bytes = await image.read()
     if not image_bytes:
-        return {"success": False, "error": "Порожній файл. Перезніми документ"}
+        return {"success": False, "error": "Порожній файл. Перескануй документ"}
     if len(image_bytes) > MAX_IMAGE_BYTES:
-        return {"success": False, "error": "Файл завеликий. Перезніми документ"}
+        return {"success": False, "error": "Файл завеликий. Перескануй документ"}
 
     mime_type = (image.content_type or "image/jpeg").split(";")[0].strip().lower()
     if mime_type not in ALLOWED_MIME:
@@ -151,14 +152,18 @@ async def process_vision(
 
         prompt = """Аналізуй цей документ. Поверни суворий JSON:
         {
-          "is_ua_document": true/false, 
-          "doc_type": "id_card/international_passport/birth_certificate/other", 
+          "is_ua_document": true/false,
+          "doc_type": "id_card/international_passport/birth_certificate/other",
           "has_russian_markers": true/false,
-          "confidence": 0.0-1.0
+          "confidence": 0.0-1.0,
+          "doc_first_name": "ім'я як надруковано в документі (латиницею, якщо є; інакше як є) або null, якщо не вдалось зчитати",
+          "doc_last_name": "прізвище як надруковано в документі (латиницею, якщо є; інакше як є) або null, якщо не вдалось зчитати",
+          "doc_dob": "дата народження у форматі ДД.ММ.РРРР як надруковано в документі, або null, якщо не вдалось зчитати"
         }
         Умови:
         1. is_ua_document = true ТІЛЬКИ якщо це офіційний документ України (Тризуб, 'Україна'/'Ukraine').
-        2. set has_russian_markers = true ТІЛЬКИ якщо присутні будь-які згадки росії, рф, москви, герба рф чи російських органів."""
+        2. set has_russian_markers = true ТІЛЬКИ якщо присутні будь-які згадки росії, рф, москви, герба рф чи російських органів.
+        3. doc_first_name/doc_last_name/doc_dob — лише те, що фактично надруковано в документі. Нічого не вигадуй і не виправляй, якщо не впевнений — став null."""
         
         response = await vision_model.generate_content_async(
             [image_part, prompt],
@@ -178,21 +183,29 @@ async def process_vision(
         if not result.get("is_ua_document"):
             return {
                 "success": False,
-                "error": "Це не схоже на документ України. Перевір, що в кадрі саме документ, і спробуй ще раз"
+                "error": "Це не схоже на український документ. Підготуй оргигінал і спробуй ще раз"
             }
 
         confidence = float(result.get("confidence", 0) or 0)
         if confidence <= 0.6:
             return {
                 "success": False,
-                "error": "Зображення нечітке. Протри камеру, додай світла й перезніми документ"
+                "error": "Зображення нечітке. Протри камеру, додай світла й перескануй документ"
             }
 
         # --- Маршрутизація успішного українського документа ---
         student_data = student['data']
 
+        ai_info = {
+            "docType": result.get("doc_type", "unknown"),
+            "firstName": result.get("doc_first_name"),
+            "lastName": result.get("doc_last_name"),
+            "birthDate": result.get("doc_dob"),
+            "confidence": confidence,
+        }
+
         await firestore_client.collection('Svitlo').document(doc_id).update({
-            "aiDocType": result.get("doc_type", "unknown"),
+            "aiInfo": ai_info,
         })
         await db.update_crm_stage(doc_id, "admin_review")
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
@@ -231,6 +244,8 @@ async def process_vision(
             dup_id = student_data.get('possibleDuplicateId')
             dup_warning = f"⚠️ <b>Можливий дублікат заявки:</b> <code>{dup_id}</code>\n\n" if dup_id else ""
 
+            ai_info_block = format_ai_info_block(ai_info)
+
             await bot.send_message(
                 chat_id=cfg.ADMIN_GROUP_ID,
                 text=(
@@ -239,7 +254,8 @@ async def process_vision(
                     f"<b>Студент:</b> {full_name}\n"
                     f"<b>Група:</b> {age_group}\n"
                     f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n"
-                    f"<b>ШІ розпізнав:</b> {result.get('doc_type')} (Точність: {int(confidence * 100)}%)\n\n"
+                    f"{ai_info_block}\n"
+                    f"<i>⚠️ Це сира відповідь ШІ, звір із даними анкети сам</i>\n\n"
                     f"Очікує рішення куратора:"
                 ),
                 reply_markup=keyboard

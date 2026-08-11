@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
 import re
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
@@ -18,8 +19,9 @@ from bot import keyboards as kb
 from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
-from bot.reg_funnel import reg_router
+from bot.reg_funnel import reg_router, render_registration_prompt
 from bot.filters import ActiveTicketFilter, IsTesterFilter
+from core.bot_init import dp
 
 # region ROUTER --------------------------------
 
@@ -299,21 +301,34 @@ async def show_socials(callback: CallbackQuery):
         reply_markup=kb.get_socials_kb()
     )
 
-@public_router.callback_query(F.data == "support_menu")
-async def start_support_inline(callback: CallbackQuery, state: FSMContext):
-    active_ticket = await db.get_active_ticket(callback.from_user.id)
+async def _open_help_category_picker(send, user_id: int, state: FSMContext) -> bool:
+    """Спільна логіка для кнопки 'Svitlo Help Centre' та команди /help поза реєстрацією.
+    Повертає True, якщо категорію показано; False, якщо в юзера вже є відкритий тікет."""
+    active_ticket = await db.get_active_ticket(user_id)
     if active_ticket:
-        await callback.answer("Ти вже маєш відкритий запит! 😉 Пиши прямо сюди, у чат", show_alert=True)
-        return
+        await send("Ти вже маєш відкритий запит! 😉 Пиши прямо сюди, у чат")
+        return False
 
-    await callback.answer()    
     await state.set_state(TicketFSM.choosing_category)
-    await callback.message.answer(
+    await send(
         "<b>🌟 Svitlo Help Centre</b>\n"
-        "Вибирай категорію свого запиту:", 
+        "Вибирай категорію свого запиту:",
         parse_mode="HTML",
         reply_markup=kb.get_categories_kb()
     )
+    return True
+
+@public_router.callback_query(F.data == "support_menu")
+async def start_support_inline(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await _open_help_category_picker(callback.message.answer, callback.from_user.id, state)
+
+# /help поза реєстрацією (idle або будь-який інший стан) — той самий флоу, що й кнопка.
+# Хендлер /help під час реєстрації живе окремо в reg_funnel.py (там своя, авто-категорійна гілка)
+# і перехоплює команду раніше, бо reg_router підключений до tg_router першим.
+@public_router.message(Command("help"))
+async def start_support_command(message: Message, state: FSMContext):
+    await _open_help_category_picker(message.answer, message.from_user.id, state)
 
 @public_router.callback_query(F.data.startswith("take_"))
 async def curator_takes_ticket(callback: CallbackQuery):
@@ -342,6 +357,29 @@ async def curator_takes_ticket(callback: CallbackQuery):
         text=f"🟢 На зв'язку <b>{curator_name}</b>. Уже беру твій запит у роботу й скоро відповім!",
         parse_mode="HTML"
     )
+
+async def _resume_paused_registration(bot, user_id: int) -> None:
+    """Якщо тікет був відкритий через /help посеред реєстрації, повертає юзера
+    на той самий крок анкети після закриття тікету (дані все ще в FSM, ми лиш
+    виходили зі стану через set_state(None), а не .clear())."""
+    key = StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id)
+    student_state = FSMContext(storage=dp.storage, key=key)
+
+    data = await student_state.get_data()
+    return_state = data.get("return_state")
+    if not return_state:
+        return
+
+    await student_state.update_data(return_state=None)
+    await student_state.set_state(return_state)
+    await bot.send_message(
+        chat_id=user_id,
+        text="✅ Питання вирішено — продовжуємо реєстрацію! Нагадую останнє питання анкети:",
+        parse_mode="HTML"
+    )
+    # Дублюємо точний текст (і кнопки) останнього кроку — довга переписка з куратором
+    # могла "поховати" питання анкети далеко вгорі чату.
+    await render_registration_prompt(bot, user_id, return_state, data)
 
 @public_router.callback_query(F.data.startswith("close_"))
 async def inline_close_ticket(callback: CallbackQuery):
@@ -387,6 +425,7 @@ async def inline_close_ticket(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=kb.get_nps_kb(ticket_id)
     )
+    await _resume_paused_registration(callback.bot, user_id)
 
 @public_router.callback_query(F.data.startswith("nps_"))
 async def process_nps(callback: CallbackQuery):
@@ -505,6 +544,16 @@ async def show_prefect_info(callback: CallbackQuery):
 
 @public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "Скасувати"]))
 async def cancel_ticket_fsm(message: Message, state: FSMContext):
+    data = await state.get_data()
+    return_state = data.get("return_state")
+
+    if return_state:
+        # Тікет ще не створювався (юзер відмінив ще на етапі вибору категорії/опису) —
+        # нема діалогу, який треба берегти, тож повертаємо в реєстрацію одразу.
+        await state.set_state(return_state)
+        await message.answer("Звернення скасовано, повертаємось до реєстрації 👌", reply_markup=ReplyKeyboardRemove())
+        return
+
     await state.clear()
     await message.answer("Створення запиту скасовано 👌", reply_markup=ReplyKeyboardRemove())
     await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
@@ -524,12 +573,20 @@ async def category_chosen(message: Message, state: FSMContext):
 async def category_fallback(message: Message):
     await message.answer("Будь ласка, вибери категорію кнопками нижче 👇")
 
+def _humanize_registration_state(state_str: str | None) -> str:
+    """Технічна мітка етапу реєстрації для кураторів (напр. 'Registration:entering_dob' -> 'entering dob')."""
+    if not state_str:
+        return ""
+    step = state_str.split(":")[-1]
+    return step.replace("_", " ")
+
 @public_router.message(TicketFSM.writing_first_message)
 async def first_ticket_message(message: Message, state: FSMContext):
     data = await state.get_data()
     category = data['category']
+    return_state = data.get('return_state')
     text_content = message.text or message.caption or "[Медіафайл]"
-    
+
     student_id = message.from_user.id
     student_name = message.from_user.full_name
     username = message.from_user.username
@@ -540,9 +597,14 @@ async def first_ticket_message(message: Message, state: FSMContext):
 
     thread_id = cfg.CATEGORY_THREADS.get(category)
 
+    stage_line = ""
+    if return_state:
+        stage_line = f"<b>📍 Етап реєстрації:</b> {_humanize_registration_state(return_state)}\n"
+
     alert_template = (
         f"<b>Новий тікет[TICKET_ID]!</b>\n"
         f"<b>📚 Категорія:</b> {category}\n"
+        f"{stage_line}"
         f"<b>👤 Студент:</b> {student_display}\n"
         f"<b>🆘 Опис запиту:</b>\n{text_content}"
     )
@@ -576,9 +638,19 @@ async def first_ticket_message(message: Message, state: FSMContext):
 
     if not message.text:
         await message.copy_to(chat_id=cfg.CURATOR_GROUP_ID, reply_to_message_id=ticket_id)
-    
-    await state.clear()
-    await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
+
+    if return_state:
+        # НЕ .clear() — він стер би й дані анкети. Просто виходимо зі стану,
+        # щоб ActiveTicketFilter пропускав діалог з куратором; в реєстрацію
+        # повернемо через _resume_paused_registration(), коли тікет закриють.
+        await state.set_state(None)
+        await message.answer(
+            "<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...\n\n"
+            "Прогрес реєстрації збережено — продовжиш одразу, як тільки з питанням розберуться."
+        )
+    else:
+        await state.clear()
+        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
 
 @public_router.message(Registration.waiting_email, F.text.in_(["🚫 Скасувати введення", "Скасувати"]))
 async def cancel_email_input(message: Message, state: FSMContext):
@@ -772,6 +844,7 @@ async def curator_reply_handler(message: Message):
             parse_mode="HTML",
             reply_markup=kb.get_nps_kb(ticket_id)
             )
+        await _resume_paused_registration(message.bot, user_id)
         return
     
     # звичайна відповідь куратора
