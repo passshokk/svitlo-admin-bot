@@ -549,8 +549,10 @@ async def cancel_ticket_fsm(message: Message, state: FSMContext):
     if return_state:
         # Тікет ще не створювався (юзер відмінив ще на етапі вибору категорії/опису) —
         # нема діалогу, який треба берегти, тож повертаємо в реєстрацію одразу.
+        await state.update_data(return_state=None)
         await state.set_state(return_state)
         await message.answer("Звернення скасовано, повертаємось до реєстрації 👌", reply_markup=ReplyKeyboardRemove())
+        await render_registration_prompt(message.bot, message.from_user.id, return_state, data)
         return
 
     await state.clear()
