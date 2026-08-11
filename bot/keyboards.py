@@ -238,7 +238,7 @@ def get_sasha_curator_keyboard() -> InlineKeyboardMarkup:
 # region --- Ticket System
 
 def get_ticket_cancel_kb() -> ReplyKeyboardMarkup:
-    buttons = [[KeyboardButton(text="🔙 Назад у меню")]]
+    buttons = [[KeyboardButton(text="🚫 Скасувати запит")]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_categories_kb() -> ReplyKeyboardMarkup:
@@ -246,7 +246,7 @@ def get_categories_kb() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Технічні баги")],
         [KeyboardButton(text="Освітній процес")],
         [KeyboardButton(text="Організаційні питання")],
-        [KeyboardButton(text="🔙 Назад у меню")]
+        [KeyboardButton(text="🚫 Скасувати запит")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 

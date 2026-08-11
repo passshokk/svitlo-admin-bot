@@ -92,7 +92,7 @@ APPLICATION_RECEIVED_MSG = (
 
 APPLICATION_CONFIRMED_MSG = (
     "<b>Congratulations {name}! 🥳</b>\n"
-    "Твою заявку успішно схвалено — <b>відтепер ти {student} Svitlo School!</b> ✨\n\n"
+    "Твою заявку успішно схвалено — <b>відтепер ти офіційно {student} Svitlo School!</b> ✨\n\n"
     "З нетерпінням чекаємо тебе на початку нового семестру:\n"
     "📅 {term_start_date}\n\n"
     "Що робити далі?\n"

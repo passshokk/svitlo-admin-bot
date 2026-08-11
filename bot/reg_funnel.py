@@ -90,6 +90,8 @@ def _prompt(state) -> str:
     """Текст питання для стану анкети — щоб не дублювати рядки в per-step хендлерах нижче"""
     return REGISTRATION_PROMPTS[state.state][0]
 
+
+
 reg_router = Router()
 # Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID
 reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
@@ -150,9 +152,9 @@ async def help_during_registration(message: Message, state: FSMContext):
     await state.update_data(category="Реєстрація", return_state=current_state)
     await state.set_state(TicketFSM.writing_first_message)
     await message.answer(
-        "<b>🌟 Svitlo Help Centre</b>\n\n"
-        "Розкажи, що трапилося 👀\n"
-        "<i>Можеш надсилати не лише текст, а голосові, фото чи відео. Твій прогрес реєстрації нікуди не дінеться — продовжиш одразу, як тільки з тобою розберуться:</i>",
+        "<b>🌟 Svitlo Support Centre 🌟</b>\n"
+        "Опиши питання чи проблему. Живий куратор відповість найближчим часом!\n\n"
+        "<i>Твій прогрес реєстрації нікуди не дінеться — продовжиш одразу після закриття запиту</i>",
         parse_mode="HTML",
         reply_markup=kb.get_ticket_cancel_kb()
     )

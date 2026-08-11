@@ -302,7 +302,7 @@ async def show_socials(callback: CallbackQuery):
     )
 
 async def _open_help_category_picker(send, user_id: int, state: FSMContext) -> bool:
-    """Спільна логіка для кнопки 'Svitlo Help Centre' та команди /help поза реєстрацією.
+    """Спільна логіка для кнопки 'Svitlo Support Centre' та команди /help поза реєстрацією.
     Повертає True, якщо категорію показано; False, якщо в юзера вже є відкритий тікет."""
     active_ticket = await db.get_active_ticket(user_id)
     if active_ticket:
@@ -311,7 +311,7 @@ async def _open_help_category_picker(send, user_id: int, state: FSMContext) -> b
 
     await state.set_state(TicketFSM.choosing_category)
     await send(
-        "<b>🌟 Svitlo Help Centre</b>\n"
+        "<b>🌟 Svitlo Support Centre 🌟</b>\n"
         "Вибирай категорію свого запиту:",
         parse_mode="HTML",
         reply_markup=kb.get_categories_kb()
@@ -541,7 +541,7 @@ async def show_prefect_info(callback: CallbackQuery):
 # region FSM (Messages)
 # ===============================================================
 
-@public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "Скасувати"]))
+@public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "🚫 Скасувати запит"]))
 async def cancel_ticket_fsm(message: Message, state: FSMContext):
     data = await state.get_data()
     return_state = data.get("return_state")
@@ -564,9 +564,8 @@ async def category_chosen(message: Message, state: FSMContext):
     await state.update_data(category=message.text)
     await state.set_state(TicketFSM.writing_first_message)
     await message.answer(
-        "<b>Розкажи, що трапилося 👀</b>\n"
-        "<i>Можеш надсилати не лише текст, а голосові, фото чи відео:</i>", 
-        parse_mode="HTML",
+        "<b>Опиши питання чи проблему.</b> Живий куратор відповість найближчим часом!\n\n"
+        "<i>Можеш надсилати не лише текст, а голосові, фото та відео</i>",
         reply_markup=kb.get_ticket_cancel_kb()
     )
 
@@ -886,7 +885,7 @@ async def curator_reply_handler(message: Message):
 
 @fallback_router.message(
     F.chat.type == "private",
-    F.text.in_(["❌ Скасувати", "🔙 Назад у меню", "Скасувати", "скасувати", "🚫 Скасувати введення"])
+    F.text.in_(["❌ Скасувати", "🔙 Назад у меню", "Скасувати", "скасувати", "🚫 Скасувати введення", "🚫 Скасувати запит"])
 )
 async def cleanup_zombie_cancel_button(message: Message):
     """Прибирає застарілу кнопку з екрана, якщо FSM стан вже None"""

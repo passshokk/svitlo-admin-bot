@@ -97,7 +97,7 @@ async def init_lead(tg_id: int, username: str | None) -> str:
     
     payload = {
         # ⚙️ System & Tracking
-        "semester": "1_26-27", #current semester number
+        "semester": "01_26-27", #current semester number
         "telegramId": tg_id,
         "telegramUsername": username or "",
         "stage": "lead",
