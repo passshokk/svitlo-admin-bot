@@ -40,8 +40,11 @@ reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "priv
 # Виключаємо стани Registration, щоб /start посеред воронки ловив cmd_during_registration
 # (інакше він завжди йде першим і мовчки чистить прогрес без попередження).
 # waiting_email — виняток: це стан синку акаунта, а не анкети, тож /start там має
-# оброблятись штатно (раніше цю роль виконував дублікат-заглушка в handlers.py)
-@reg_router.message(Command("start"), StateFilter(Registration.waiting_email) | ~StateFilter(Registration))
+# оброблятись штатно (раніше цю роль виконував дублікат-заглушка в handlers.py).
+# aiogram Filter не підтримує "|" між інстансами (лише "~"), тому OR виражаємо
+# двома окремими декораторами замість StateFilter(...) | ~StateFilter(...)
+@reg_router.message(Command("start"), ~StateFilter(Registration))
+@reg_router.message(Command("start"), StateFilter(Registration.waiting_email))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     student = student_ctx.get()
