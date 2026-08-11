@@ -38,8 +38,10 @@ reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "priv
 # region temporary test fns
 # --- ОНОВЛЕНИЙ cmd_start ---
 # Виключаємо стани Registration, щоб /start посеред воронки ловив cmd_during_registration
-# (інакше він завжди йде першим і мовчки чистить прогрес без попередження)
-@reg_router.message(Command("start"), ~StateFilter(Registration))
+# (інакше він завжди йде першим і мовчки чистить прогрес без попередження).
+# waiting_email — виняток: це стан синку акаунта, а не анкети, тож /start там має
+# оброблятись штатно (раніше цю роль виконував дублікат-заглушка в handlers.py)
+@reg_router.message(Command("start"), StateFilter(Registration.waiting_email) | ~StateFilter(Registration))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     student = student_ctx.get()
@@ -52,7 +54,7 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_start_menu()
         )
-    else: 
+    else:
         # Невідомий користувач (старий студент без ТГ або новий лід)
         await message.answer(
             "👋 Привіт! Я — офіційний бот SvitloSchool.\n"
@@ -884,7 +886,9 @@ async def process_admin_review_wait(message: Message):
 
 
 # --- 1. Інтерцептор команд під час реєстрації ---
-@reg_router.message(StateFilter(Registration), Command("start", "menu", "profile", "house"))
+# waiting_email виключено: це стан синку акаунта (не анкета), дані там не заповнюються,
+# тож команди мають оброблятись штатно, а не хендлером-перехоплювачем
+@reg_router.message(StateFilter(Registration), ~StateFilter(Registration.waiting_email), Command("start", "menu", "profile", "house"))
 async def cmd_during_registration(message: Message, state: FSMContext):
     await message.answer(
         "<b>⚠️ Ти перебуваєш в процесі реєстрації до Svitlo School!</b>\n\n"

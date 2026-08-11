@@ -5,6 +5,7 @@ from core import database as db
 from core.context import student_ctx, user_roles_ctx
 from bot.states import Registration
 from aiogram.fsm.context import FSMContext
+from bot import keyboards as kb
 
 class LoadDataMiddleware(BaseMiddleware):
     """
@@ -90,10 +91,10 @@ class RequireAuthMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             await event.answer()
             await event.message.edit_text(text_1, parse_mode="HTML")
-            await event.message.answer(text_2, parse_mode="HTML")
+            await event.message.answer(text_2, parse_mode="HTML", reply_markup=kb.get_email_cancel_kb())
         elif isinstance(event, Message):
             await event.answer(text_1, parse_mode="HTML")
-            await event.answer(text_2, parse_mode="HTML")
+            await event.answer(text_2, parse_mode="HTML", reply_markup=kb.get_email_cancel_kb())
             
         return
 
