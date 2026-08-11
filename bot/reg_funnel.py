@@ -34,9 +34,7 @@ LEAD_SOURCE_DETAILS_PROMPTS = {
     "Організація": "Будь ласка, уточни назву організації:",
 }
 
-# SSЄдине джерело правди для тексту (і клавіатури) кожного кроку анкети — використовується
-# і живим флоу нижче (через _prompt()), і render_registration_prompt() в bot/handlers.py
-# для повторного показу останнього питання після тікету підтримки чи скасування.
+# SSoT для тексту і клавіатур кожного кроку анкети. In _prompt(), in render_registration_prompt()
 REGISTRATION_PROMPTS = {
     Registration.waiting_email.state: (
         "Напиши свою <b>електронну пошту</b>, яку ти вказував(-ла) при реєстрації у SvitloSchool:", None,
@@ -89,7 +87,7 @@ REGISTRATION_PROMPTS = {
 }
 
 def _prompt(state) -> str:
-    """Текст питання для стану анкети — щоб не дублювати рядки в per-step хендлерах нижче."""
+    """Текст питання для стану анкети — щоб не дублювати рядки в per-step хендлерах нижче"""
     return REGISTRATION_PROMPTS[state.state][0]
 
 reg_router = Router()
@@ -192,7 +190,9 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(Registration.waiting_email)
     await state.update_data(emailFlowSource="guest_menu_auth_existing")
-    await callback.message.edit_text("🔐 <b>Синхронізація акаунта</b>")
+
+    await callback.message.delete()
+    await ut.step_answer(callback.message, "🔐 <b>Синхронізація акаунта</b>")
     await ut.step_answer(callback.message, "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 
 @reg_router.callback_query(F.data == "auth_new_lead")
@@ -382,8 +382,7 @@ async def process_phone_contact(message: Message, state: FSMContext):
     await state.update_data(phone=phone)
     await state.set_state(Registration.entering_country)
     
-    await message.answer("Дякую! До речі, 50% заявки вже позаду 😉", reply_markup=ReplyKeyboardRemove())
-    await ut.step_answer(message, _prompt(Registration.entering_country), parse_mode="HTML")
+    await ut.step_answer(message, _prompt(Registration.entering_country), parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
 
 # Блокування ручного введення
 @reg_router.message(Registration.entering_phone, F.text)
@@ -415,7 +414,7 @@ async def process_country(message: Message, state: FSMContext):
 
     await state.update_data(country=country)
     await state.set_state(Registration.entering_city)
-    await ut.step_answer(message, _prompt(Registration.entering_city))
+    await ut.step_answer(message, "Вкажи назву <b>міста чи села</b>, де ти зараз мешкаєш:")
 
 # МІСТО -> ВПО
 @reg_router.message(Registration.entering_city, F.text)
@@ -438,7 +437,12 @@ async def process_city(message: Message, state: FSMContext):
 
     await state.update_data(city=city)
     await state.set_state(Registration.entering_displaced_bool)
-    await ut.step_answer(message, _prompt(Registration.entering_displaced_bool), reply_markup=kb.get_boolean_kb())
+    await message.answer("Дякую! 50% заявки вже позаду 😉")
+    await ut.step_answer(message, 
+        "<b>Чи довелося тобі змінити місце проживання через війну?</b>\n\n"
+        "<blockquote>ℹ️ Ця інформація допомагає нам підтримувати студентів та адаптовувати навчальні програми</blockquote>",
+        reply_markup=kb.get_boolean_kb()
+    )
 
 # ВПО -> Область (якщо Так) або Батьки (якщо Ні)
 @reg_router.message(Registration.entering_displaced_bool, F.text)
@@ -447,19 +451,19 @@ async def process_displaced_status(message: Message, state: FSMContext):
     if text == "так":
         await state.update_data(isDisplaced=True)
         await state.set_state(Registration.entering_displaced_region)
-        await ut.step_answer(message,
-            _prompt(Registration.entering_displaced_region),
+        await ut.step_answer(message, 
+            "<b>З якої області України ти переїхав(-ла)?</b>",
             reply_markup=ReplyKeyboardRemove()
         )
     elif text == "ні":
         await state.update_data(isDisplaced=False, displacedRegion="")
         await state.set_state(Registration.entering_parent_first_name)
-
+        
         await message.answer(
             "Дякую! Далі кілька запитань про одного з твоїх батьків або опікунів. Це необхідно, аби ми могли зв’язатися з ними в разі надзивчайної ситуації",
             reply_markup=ReplyKeyboardRemove()
         )
-        await ut.step_answer(message, _prompt(Registration.entering_parent_first_name))
+        await ut.step_answer(message, "Вкажи <b>ім'я одного з батьків/опікунів</b>:")
     else:
         await ut.step_answer(message, "⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
 
@@ -479,7 +483,7 @@ async def process_displaced_region(message: Message, state: FSMContext):
                 "Далі кілька запитань про одного з твоїх батьків або опікунів. Це необхідно, аби ми могли зв’язатися з ними в разі надзивчайної ситуації",
                 reply_markup=ReplyKeyboardRemove()
             )
-    await ut.step_answer(message, _prompt(Registration.entering_parent_first_name))
+    await ut.step_answer(message, "Вкажи <b>ім'я одного з батьків/опікунів</b>:")
 
 # БАТЬКИ (Ім'я -> Прізвище -> Email -> Телефон)
 @reg_router.message(Registration.entering_parent_first_name, F.text)
@@ -491,7 +495,7 @@ async def process_parent_first_name(message: Message, state: FSMContext):
 
     await state.update_data(parentFirstName=parent_first_name)
     await state.set_state(Registration.entering_parent_last_name)
-    await ut.step_answer(message, _prompt(Registration.entering_parent_last_name))
+    await ut.step_answer(message, "Вкажи <b>прізвище одного з батьків/опікунів</b>:")
 
 @reg_router.message(Registration.entering_parent_last_name, F.text)
 async def process_parent_last_name(message: Message, state: FSMContext):
@@ -502,7 +506,7 @@ async def process_parent_last_name(message: Message, state: FSMContext):
 
     await state.update_data(parentLastName=parent_last_name)
     await state.set_state(Registration.entering_parent_email)
-    await ut.step_answer(message, _prompt(Registration.entering_parent_email))
+    await ut.step_answer(message, "Яка <b>електронна пошта в одного з твоїх батьків/опікунів?</b>")
 
 @reg_router.message(Registration.entering_parent_email, F.text)
 async def process_parent_email(message: Message, state: FSMContext):
@@ -520,7 +524,7 @@ async def process_parent_email(message: Message, state: FSMContext):
 
     await state.update_data(parentEmail=email)
     await state.set_state(Registration.entering_parent_phone)
-    await ut.step_answer(message, _prompt(Registration.entering_parent_phone))
+    await ut.step_answer(message, "І який <b>номер телефону в одного з твоїх батьків/опікунів?</b> Вкажи у міжнародному форматі (наприклад, +380...)")
 
 @reg_router.message(Registration.entering_parent_phone, F.text)
 async def process_parent_phone(message: Message, state: FSMContext):
@@ -538,22 +542,25 @@ async def process_parent_phone(message: Message, state: FSMContext):
     await state.update_data(parentPhone=phone)
     await state.set_state(Registration.entering_lead_source)
     await message.answer("Дякую! 😊 Залишилось всього 2 запитання, і цей розділ завершено!")
-    await ut.step_answer(message, _prompt(Registration.entering_lead_source),
+    await ut.step_answer(message, "<b>Звідки ти дізнався(-лась) про Svitlo School?</b> Обери або напиши свій варіант:", 
                          reply_markup=kb.get_lead_source_kb())
 
 # ДЖЕРЕЛО ТРАФІКУ
 @reg_router.message(Registration.entering_lead_source, F.text)
 async def process_lead_source(message: Message, state: FSMContext):
     lead_source = message.text.strip()
-    if lead_source in LEAD_SOURCE_DETAILS_PROMPTS:
+    if lead_source in ("Інше", "Організація"):
         await state.update_data(leadSourceType=lead_source)
         await state.set_state(Registration.entering_lead_source_details)
-        await ut.step_answer(message, LEAD_SOURCE_DETAILS_PROMPTS[lead_source], reply_markup=ReplyKeyboardRemove())
+        if lead_source == "Інше":
+            await ut.step_answer(message, "Будь ласка, коротко уточни звідки чи від кого:", reply_markup=ReplyKeyboardRemove())
+        else:
+            await ut.step_answer(message, "Будь ласка, уточни назву організації:", reply_markup=ReplyKeyboardRemove())
         return
 
     await state.update_data(leadSource=lead_source)
     await state.set_state(Registration.entering_health_bool)
-    await ut.step_answer(message, _prompt(Registration.entering_health_bool), reply_markup=kb.get_boolean_kb())
+    await ut.step_answer(message, "І наостанок: чи є у тебе особливі потреби, пов’язані зі станом здоров’я або інвалідністю, про які нам варто знати для твоєї найкращої підтримки в Svitlo School? Наприклад, медичні застереження, потреби в адаптації матеріалів чи забезпеченні доступності", reply_markup=kb.get_boolean_kb())
 
 # ДЖЕРЕЛО ТРАФІКУ (уточнення для "Інше" / "Організація")
 @reg_router.message(Registration.entering_lead_source_details, F.text)
@@ -564,7 +571,7 @@ async def process_lead_source_details(message: Message, state: FSMContext):
 
     await state.update_data(leadSource=f"{lead_source_type}: {details}")
     await state.set_state(Registration.entering_health_bool)
-    await ut.step_answer(message, _prompt(Registration.entering_health_bool), reply_markup=kb.get_boolean_kb())
+    await ut.step_answer(message, "І наостанок: чи є у тебе особливі потреби, пов’язані зі станом здоров’я або інвалідністю, про які нам варто знати для твоєї найкращої підтримки в Svitlo School? Наприклад, медичні застереження, потреби в адаптації матеріалів чи забезпеченні доступності", reply_markup=kb.get_boolean_kb())
 
 # ЗДОРОВ'Я ТА ІНКЛЮЗІЯ
 @reg_router.message(Registration.entering_health_bool, F.text)
@@ -572,7 +579,7 @@ async def process_health_bool(message: Message, state: FSMContext):
     if message.text.strip().lower() == "так":
         await state.update_data(hasHealthIssues=True)
         await state.set_state(Registration.entering_health_details)
-        await ut.step_answer(message, _prompt(Registration.entering_health_details), reply_markup=ReplyKeyboardRemove())
+        await ut.step_answer(message, "Будь ласка, опиши їх коротко (це важливо, аби могли забезпечити інклюзивне середовище):", reply_markup=ReplyKeyboardRemove())
     elif message.text.strip().lower() == "ні":
         await state.update_data(hasHealthIssues=False, healthIssuesDetails="")
         await _show_data_confirmation(message, state)
@@ -856,16 +863,16 @@ async def admin_show_lead_details(callback: CallbackQuery):
         f"<b>📋 Повна анкета: {data.get('firstName')} {data.get('lastName')}</b>\n\n"
         f"<b>Дата народження:</b> {dob_str} ({data.get('ageGroup')})\n"
         f"<b>Email:</b> {data.get('email')}\n"
-        f"<b>Телефон:</b> {phone} | {display_username}\n"
+        f"<b>Контакти:</b>\n{phone}\n{display_username}\n"
         f"<b>Стать:</b> {data.get('gender')}\n"
         f"<b>Локація:</b> {data.get('city')}, {data.get('country')}\n"
         f"<b>Джерело ліда:</b> {ut.esc_html(data.get('leadSource'))}\n\n"
         f"<b>ВПО/біженець:</b> {displaced_info}\n"
         f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
-        f"<b>Батьки:</b> {data.get('parentFirstName')} {data.get('parentLastName')}\n"
-        f"<b>Контакти батьків:</b>\n{data.get('parentPhone')}\n{data.get('parentEmail')}\n\n"
-        f"<i>{ai_info_block}</i>\n"
-        f"<i>⚠️ Порівняй з даними анкети вище — це нічим не перевірено автоматично</i>"
+        f"<b>Відповідальна особа:</b>\n{data.get('parentFirstName')} {data.get('parentLastName')}\n"
+        f"{data.get('parentPhone')}\n{data.get('parentEmail')}\n\n"
+        f"{ai_info_block}\n"
+        f"<i>⚠️ Звір з даними анкети вище</i>"
     )
 
     keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=False)
