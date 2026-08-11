@@ -7,7 +7,6 @@ from aiogram.exceptions import TelegramBadRequest
 from google.cloud import firestore
 import re
 from datetime import datetime, timezone
-import logging
 
 from core import database as db
 from core.database import db as firestore_client
@@ -35,14 +34,72 @@ reg_router = Router()
 reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
 reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
 
-# region temporary test fns
-# --- ОНОВЛЕНИЙ cmd_start ---
-# Виключаємо стани Registration, щоб /start посеред воронки ловив cmd_during_registration
-# (інакше він завжди йде першим і мовчки чистить прогрес без попередження).
-# waiting_email — виняток: це стан синку акаунта, а не анкети, тож /start там має
-# оброблятись штатно (раніше цю роль виконував дублікат-заглушка в handlers.py).
-# aiogram Filter не підтримує "|" між інстансами (лише "~"), тому OR виражаємо
-# двома окремими декораторами замість StateFilter(...) | ~StateFilter(...)
+# ===============================================================
+# region INTERCEPTORS
+# ===============================================================
+
+# --- 1. Інтерцептор команд під час реєстрації ---
+@reg_router.message(StateFilter(Registration), ~StateFilter(Registration.waiting_email), Command("start", "menu", "profile", "house"))
+async def cmd_during_registration(message: Message, state: FSMContext):
+    await message.answer(
+        "<b>⚠️ Ти перебуваєш в процесі реєстрації до Svitlo School!</b>\n\n"
+        "Якщо ти вийдеш зараз, <b>заповнені дані не збережуться</b>, а доступ до функцій бота буде обмежено до завершення воронки",
+        parse_mode="HTML",
+        reply_markup=kb.get_registration_cancel_confirm()
+    )
+    await state.update_data(interruptMsgId=message.message_id)
+
+@reg_router.callback_query(F.data == "reg_resume")
+async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    interrupt_msg_id = data.get("interruptMsgId")
+
+    if interrupt_msg_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, interrupt_msg_id)
+        except TelegramBadRequest:
+            pass
+
+    await callback.message.delete()
+    await state.update_data(interruptMsgId=None)
+
+@reg_router.callback_query(F.data == "reg_restart")
+async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    student = student_ctx.get()
+    if not student:
+        student = await db.get_student_by_tg_id(callback.from_user.id)
+    if student:
+        await db.update_crm_stage(student['id'], "lead")
+
+    await state.clear()
+    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову")
+
+
+# --- 2. /help посеред реєстрації: авто-категорія ---
+@reg_router.message(StateFilter(Registration), Command("help"))
+async def help_during_registration(message: Message, state: FSMContext):
+    active_ticket = await db.get_active_ticket(message.from_user.id)
+    if active_ticket:
+        await message.answer("Ти вже маєш відкритий запит! 😉 Пиши прямо сюди, у чат")
+        return
+
+    current_state = await state.get_state()
+    await state.update_data(category="Реєстрація", return_state=current_state)
+    await state.set_state(TicketFSM.writing_first_message)
+    await message.answer(
+        "<b>🌟 Svitlo Help Centre</b>\n\n"
+        "Розкажи, що трапилося 👀\n"
+        "<i>Можеш надсилати не лише текст, а голосові, фото чи відео. Твій прогрес реєстрації нікуди не дінеться — продовжиш одразу, як тільки з тобою розберуться:</i>",
+        parse_mode="HTML",
+        reply_markup=kb.get_ticket_cancel_kb()
+    )
+
+# endregion =====================================================
+# region START FLOW
+# ===============================================================
+
 @reg_router.message(Command("start"), ~StateFilter(Registration))
 @reg_router.message(Command("start"), StateFilter(Registration.waiting_email))
 async def cmd_start(message: Message, state: FSMContext):
@@ -66,7 +123,7 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=kb.get_guest_start_menu()
         )
 
-# --- РОЗГАЛУЖЕННЯ ДЛЯ СТАРИХ СТУДЕНТІВ ---
+
 @reg_router.callback_query(F.data == "auth_existing")
 async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -74,11 +131,6 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await state.update_data(emailFlowSource="guest_menu_auth_existing")
     await callback.message.edit_text("🔐 <b>Синхронізація акаунта</b>")
     await ut.step_answer(callback.message, "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
-#endregion -----------------------------------------------------
-
-# ===============================================================
-# region NEW LEADS
-# ===============================================================
 
 @reg_router.callback_query(F.data == "auth_new_lead")
 async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
@@ -873,10 +925,7 @@ async def admin_approve_lead(callback: CallbackQuery):
 
 @reg_router.message(Registration.uploading_docs)
 async def fallback_waiting_scan(message: Message):
-    """
-    Перехоплювач: спрацьовує, якщо замість WebApp юзер відправляє повідомлення або фото.
-    Захищає Zero-Storage логіку.
-    """
+    """Перехоплювач: спрацьовує, якщо замість WebApp юзер відправляє повідомлення або фото. Захищає Zero-Storage логіку."""
     await message.answer(
         "🔒 Будь ласка, скористайся кнопкою <b>«Сканувати документ»</b> для безпечної та захищеної верифікації.\n\n"
         "⚠️ Ми піклуємось про твою безпеку, тому наполегливо <b>не рекомендуємо надсилати фотографії документів в чат</b> та не приймаємо їх в такому форматі",
@@ -887,82 +936,7 @@ async def fallback_waiting_scan(message: Message):
 async def process_admin_review_wait(message: Message):
     await message.answer("⏳ Твоя заявка зараз перевіряється куратором. Зачекай результату")
 
-
-# --- 1. Інтерцептор команд під час реєстрації ---
-# waiting_email виключено: це стан синку акаунта (не анкета), дані там не заповнюються,
-# тож команди мають оброблятись штатно, а не хендлером-перехоплювачем
-@reg_router.message(StateFilter(Registration), ~StateFilter(Registration.waiting_email), Command("start", "menu", "profile", "house"))
-async def cmd_during_registration(message: Message, state: FSMContext):
-    await message.answer(
-        "<b>⚠️ Ти перебуваєш в процесі реєстрації до Svitlo School!</b>\n\n"
-        "Якщо ти вийдеш зараз, <b>заповнені дані не збережуться</b>, а доступ до функцій бота буде обмежено до завершення воронки",
-        parse_mode="HTML",
-        reply_markup=kb.get_registration_cancel_confirm()
-    )
-    # Запам'ятовуємо id команди-переривача, щоб на "продовжити" прибрати її
-    # і повернути в чат останнє питання анкети як найновіше повідомлення
-    await state.update_data(interruptMsgId=message.message_id)
-
-@reg_router.callback_query(F.data == "reg_resume")
-async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-
-    data = await state.get_data()
-    interrupt_msg_id = data.get("interruptMsgId")
-
-    # Видаляємо команду-переривач (напр. /start), щоб останнім у чаті лишилось саме питання анкети
-    if interrupt_msg_id:
-        try:
-            await callback.bot.delete_message(callback.message.chat.id, interrupt_msg_id)
-        except TelegramBadRequest:
-            pass
-
-    await callback.message.delete()
-    await state.update_data(interruptMsgId=None)
-
-@reg_router.callback_query(F.data == "reg_restart")
-async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    # 1. Відкат стану в базі даних
-    student = student_ctx.get()
-    if not student:
-        # Фолбек, якщо контекст загубився (наприклад, після рестарту бота)
-        student = await db.get_student_by_tg_id(callback.from_user.id)
-
-    if student:
-        # Повертаємо ліда на початковий етап, щоб /start відпрацював коректно
-        await db.update_crm_stage(student['id'], "lead")
-
-    await state.clear()
-    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову")
-
-
-# --- 1.5. /help посеред реєстрації: авто-категорія, без питання ---
-# Реєструємо ДО catch-all'ів нижче, інакше process_invalid_registration_input
-# перехопить команду першим і юзер побачить "невірний формат" замість хелпу.
-@reg_router.message(StateFilter(Registration), Command("help"))
-async def help_during_registration(message: Message, state: FSMContext):
-    active_ticket = await db.get_active_ticket(message.from_user.id)
-    if active_ticket:
-        await message.answer("Ти вже маєш відкритий запит! 😉 Пиши прямо сюди, у чат")
-        return
-
-    current_state = await state.get_state()
-    await state.update_data(category="Реєстрація", return_state=current_state)
-    await state.set_state(TicketFSM.writing_first_message)
-    await message.answer(
-        "<b>🌟 Svitlo Help Centre</b>\n"
-        "Розкажи, що трапилося 👀\n"
-        "<i>Можеш надсилати не лише текст, а голосові, фото чи відео. Твій прогрес реєстрації нікуди не дінеться — продовжиш одразу, як тільки з тобою розберуться:</i>",
-        parse_mode="HTML",
-        reply_markup=kb.get_ticket_cancel_kb()
-    )
-
-
-# --- 2. Ловитель невідповідного контенту/типу даних ---
-# waiting_email виключено: цей стан обробляють хендлери email-синку в bot/handlers.py
-# (інакше цей catch-all перехоплює їх раніше, ніж вони встигають спрацювати)
+# --- 1. Ловитель невідповідного контенту/типу даних ---
 @reg_router.message(StateFilter(Registration), ~StateFilter(Registration.waiting_email))
 async def process_invalid_registration_input(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -989,7 +963,7 @@ async def process_invalid_registration_input(message: Message, state: FSMContext
         )
 
 
-# --- 3. Інтерцептор застарілих колбеків ---
+# --- 2. Інтерцептор застарілих колбеків ---
 @reg_router.callback_query(StateFilter(Registration), ~StateFilter(Registration.waiting_email))
 async def process_stale_callbacks(callback: CallbackQuery, state: FSMContext):
     await callback.answer(
@@ -998,11 +972,8 @@ async def process_stale_callbacks(callback: CallbackQuery, state: FSMContext):
     )
 
 # endregion =====================================================
-# region RESUME PROMPT (повторний показ останнього питання анкети)
+# region RESUME PROMPT
 # ===============================================================
-# Використовується bot/handlers.py._resume_paused_registration, коли юзер
-# повертається в реєстрацію після закриття тікету підтримки — довга переписка
-# з куратором могла "поховати" питання анкети, тож дублюємо його текстом.
 
 REGISTRATION_PROMPTS = {
     Registration.waiting_email.state: (
@@ -1060,7 +1031,7 @@ def _render_passing_rules_prompt(data: dict) -> tuple[str, object]:
     return text, kb.get_quiz_kb(question["options"])
 
 async def render_registration_prompt(bot, user_id: int, state_str: str, data: dict) -> None:
-    """Повторно надсилає точний текст (і клавіатуру) останнього питання анкети за станом."""
+    """Повторно надсилає точний текст (і клавіатуру) останнього питання анкети за станом"""
     if state_str == Registration.entering_lead_source_details.state:
         lead_type = data.get("leadSourceType", "Інше")
         text = (

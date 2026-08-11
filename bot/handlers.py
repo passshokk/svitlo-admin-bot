@@ -360,8 +360,7 @@ async def curator_takes_ticket(callback: CallbackQuery):
 
 async def _resume_paused_registration(bot, user_id: int) -> None:
     """Якщо тікет був відкритий через /help посеред реєстрації, повертає юзера
-    на той самий крок анкети після закриття тікету (дані все ще в FSM, ми лиш
-    виходили зі стану через set_state(None), а не .clear())."""
+    на той самий крок анкети після закриття тікету"""
     key = StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id)
     student_state = FSMContext(storage=dp.storage, key=key)
 
@@ -646,7 +645,7 @@ async def first_ticket_message(message: Message, state: FSMContext):
         await state.set_state(None)
         await message.answer(
             "<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...\n\n"
-            "Прогрес реєстрації збережено — продовжиш одразу, як тільки з питанням розберуться."
+            "Прогрес реєстрації збережено — продовжиш одразу, як тільки розберемось з питанням"
         )
     else:
         await state.clear()
