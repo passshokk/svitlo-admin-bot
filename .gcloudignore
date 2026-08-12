@@ -18,6 +18,7 @@ db_migration.py
 .git/
 .gitignore
 .gcloudignore
+.claude
 
 # Скрипти автоматизації Windows (не потрібні в хмарі)
 *.cmd

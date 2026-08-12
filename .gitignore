@@ -11,6 +11,7 @@ __pycache__/
 .vscode/
 webhook_setup.
 db_migration.py
+.claude
 
 # Локальні скрипти автоматизації Windows, які не потрібні в хмарі
 *.cmd

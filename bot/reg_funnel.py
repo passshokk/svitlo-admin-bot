@@ -1,11 +1,12 @@
 # bot/reg_funnel.py
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, FSInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from google.cloud import firestore
 import re
+from pathlib import Path
 from datetime import datetime, timezone
 
 from core import database as db
@@ -32,6 +33,15 @@ EDIT_FIELD_PROMPTS = {
     "country": "Введи нову <b>країну</b> проживання:",
     "city": "Введи нове <b>місто</b> проживання:"
 }
+
+PHOTOS_DIR = Path(__file__).resolve().parent.parent / "photos"
+GENDER_HINT_CAPTION = "❗ Підказка: для деяких запитань використовуйте вбудовані кнопки вибору. Як їх знайти, дивіться на фото"
+
+def _replykb_hint() -> list[InputMediaPhoto]:
+    return [
+        InputMediaPhoto(media=FSInputFile(PHOTOS_DIR / "gender_hint_1_open_keyboard.jpg")),
+        InputMediaPhoto(media=FSInputFile(PHOTOS_DIR / "gender_hint_2_tap_button.jpg"), caption=GENDER_HINT_CAPTION),
+    ]
 
 LEAD_SOURCE_DETAILS_PROMPTS = {
     "Інше": "Будь ласка, коротко уточни звідки чи від кого:",
@@ -275,6 +285,7 @@ async def process_last_name(message: Message, state: FSMContext):
         f"Nice to meet you, {full_name}! ☺️\n\n"
         "<b>Зверни увагу, решту заявки слід заповнювати українською!</b> 🇺🇦"
     )
+    await message.answer_media_group(_replykb_hint())
     await ut.step_answer(message, _prompt(Registration.entering_gender), reply_markup=kb.get_gender_kb(), parse_mode="HTML")
 
 # СТАТЬ -> ДАТА НАРОДЖЕННЯ
@@ -305,11 +316,11 @@ async def process_dob(message: Message, state: FSMContext):
         today = datetime.now()
         age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
         
-        if not (10 <= age <= 17):
-            await ut.step_answer(message, "⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-17). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
+        if not (10 <= age <= 18):
+            await ut.step_answer(message, "⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             return
             
-        age_group = "older" if 14 <= age <= 17 else "younger" if 10 <= age <= 13 else "error"
+        age_group = "older" if 14 <= age <= 18 else "younger" if 10 <= age <= 13 else "error"
         
         # Встановлюємо 12:00 UTC, щоб уникнути багів зміни дня через таймзони
         dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
