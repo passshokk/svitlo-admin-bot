@@ -106,7 +106,7 @@ def _prompt(state) -> str:
     return REGISTRATION_PROMPTS[state.state][0]
 
 # endregion =====================================================
-# ROUTERS
+# region ROUTERS
 # ===============================================================
 
 reg_router = Router()
@@ -114,7 +114,7 @@ reg_router = Router()
 reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
 reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
 
-# ===============================================================
+# endregion =====================================================
 # region INTERCEPTORS
 # ===============================================================
 
@@ -128,6 +128,7 @@ async def cmd_during_registration(message: Message, state: FSMContext):
         reply_markup=kb.get_registration_cancel_confirm()
     )
     await state.update_data(interruptMsgId=message.message_id)
+
 
 @reg_router.callback_query(F.data == "reg_resume")
 async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
@@ -153,8 +154,20 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
     if student:
         await db.update_crm_stage(student['id'], "lead")
 
+    data = await state.get_data()
+    interrupt_msg_id = data.get("interruptMsgId")
+
+    if interrupt_msg_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, interrupt_msg_id)
+        except TelegramBadRequest:
+            pass
+
     await state.clear()
-    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову", reply_markup=ReplyKeyboardRemove())
+    await callback.message.delete()
+    await state.update_data(interruptMsgId=None)
+    await callback.message.answer("Реєстрацію скасовано. Натисни /start, щоб розпочати знову", reply_markup=ReplyKeyboardRemove())
+
 
 # --- 2. /help посеред реєстрації: авто-категорія ---
 @reg_router.message(StateFilter(Registration), Command("help"))
@@ -201,7 +214,6 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=kb.get_guest_start_menu()
         )
-
 
 @reg_router.callback_query(F.data == "auth_existing")
 async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
