@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMedi
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from google.cloud import firestore
+import asyncio
 import re
 from datetime import datetime, timezone
 
@@ -33,7 +34,7 @@ EDIT_FIELD_PROMPTS = {
     "city": "Введи нове <b>місто</b> проживання:"
 }
 
-GENDER_HINT_CAPTION = "❗ Підказка: для деяких запитань використовуйте вбудовані кнопки вибору. Як їх знайти, дивіться на фото"
+GENDER_HINT_CAPTION = "👀 Підказка: для деяких запитань використовуйте вбудовані кнопки вибору. Як їх знайти, дивіться на фото"
 GENDER_HINT_FILE_ID_1 = "AgACAgIAAxUHanx6ZBQhWOanzGRQObHeF91bfnoAAgEaaxtuE-FLOy7CJsf3VrwBAAMCAAN5AAM9BA"
 GENDER_HINT_FILE_ID_2 = "AgACAgIAAxUHanx6ZAKyROvHuJ_OyDkfEoT2hMwAAgIaaxtuE-FLWxV5Q02_a-cBAAMCAAN5AAM9BA"
 
@@ -153,8 +154,7 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
         await db.update_crm_stage(student['id'], "lead")
 
     await state.clear()
-    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову")
-
+    await callback.message.edit_text("Реєстрацію скасовано. Натисни /start, щоб розпочати знову", reply_markup=ReplyKeyboardRemove())
 
 # --- 2. /help посеред реєстрації: авто-категорія ---
 @reg_router.message(StateFilter(Registration), Command("help"))
@@ -285,6 +285,8 @@ async def process_last_name(message: Message, state: FSMContext):
         f"Nice to meet you, {full_name}! ☺️\n\n"
         "<b>Зверни увагу, решту заявки слід заповнювати українською!</b> 🇺🇦"
     )
+    await message.bot.send_chat_action(message.chat.id, "upload_photo")
+    await asyncio.sleep(1)
     await message.answer_media_group(_replykb_hint())
     await ut.step_answer(message, _prompt(Registration.entering_gender), reply_markup=kb.get_gender_kb(), parse_mode="HTML")
 
@@ -365,13 +367,8 @@ async def process_email(message: Message, state: FSMContext):
     await state.update_data(email=email)
     await state.set_state(Registration.entering_phone)
     
-    phone_instructions = (
-        "Дякую, тепер <b>натисни кнопку «Поділитись номером»</b> нижче, аби надіслати нам свій контакт!"
-        "Це допоможе зберегти твій номер телефону в правильному форматі та залишатись на зв'язку 😌\n\n"
-        "<blockquote>ℹ️ Telegram може відкрити стандартне системне вікно для верифікації — "
-        "<b>це безпечна процедура авторизації, просто підтвердь дію</b></blockquote>"
-    )
-    await message.answer(phone_instructions, reply_markup=kb.get_number_for_registration_kb())
+    await message.answer("Дякую, тепер <b>натисни кнопку «Поділитись номером»</b> нижче, аби надіслати нам свій контакт! Це допоможе зберегти твій номер телефону в правильному форматі та залишатись на зв'язку 😌", reply_markup=kb.get_number_for_registration_kb())
+    await ut.step_answer(message, "<blockquote>ℹ️ Telegram може відкрити стандартне системне вікно для верифікації — <b>це безпечна процедура авторизації, просто підтвердь дію</b></blockquote>")
 
 # ТЕЛЕФОН -> КРАЇНА
 # Прийом виключно контактних даних від кнопки
@@ -455,7 +452,10 @@ async def process_city(message: Message, state: FSMContext):
     await state.set_state(Registration.entering_displaced_bool)
     await message.answer("Дякую! 50% заявки вже позаду 😉")
     await ut.step_answer(message, 
-        "<b>Чи довелося тобі змінити місце проживання через війну?</b>\n\n"
+        "<b>Чи довелося тобі змінити місце проживання через війну?</b>",
+        reply_markup=kb.get_boolean_kb()
+    )
+    await ut.step_answer(message, 
         "<blockquote>ℹ️ Ця інформація допомагає нам підтримувати студентів та адаптовувати навчальні програми</blockquote>",
         reply_markup=kb.get_boolean_kb()
     )
