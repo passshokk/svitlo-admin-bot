@@ -1,12 +1,11 @@
 # bot/reg_funnel.py
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from google.cloud import firestore
 import re
-from pathlib import Path
 from datetime import datetime, timezone
 
 from core import database as db
@@ -34,13 +33,14 @@ EDIT_FIELD_PROMPTS = {
     "city": "Введи нове <b>місто</b> проживання:"
 }
 
-PHOTOS_DIR = Path(__file__).resolve().parent.parent / "photos"
 GENDER_HINT_CAPTION = "❗ Підказка: для деяких запитань використовуйте вбудовані кнопки вибору. Як їх знайти, дивіться на фото"
+GENDER_HINT_FILE_ID_1 = "AgACAgIAAxUHanx6ZBQhWOanzGRQObHeF91bfnoAAgEaaxtuE-FLOy7CJsf3VrwBAAMCAAN5AAM9BA"
+GENDER_HINT_FILE_ID_2 = "AgACAgIAAxUHanx6ZAKyROvHuJ_OyDkfEoT2hMwAAgIaaxtuE-FLWxV5Q02_a-cBAAMCAAN5AAM9BA"
 
 def _replykb_hint() -> list[InputMediaPhoto]:
     return [
-        InputMediaPhoto(media=FSInputFile(PHOTOS_DIR / "gender_hint_1_open_keyboard.jpg")),
-        InputMediaPhoto(media=FSInputFile(PHOTOS_DIR / "gender_hint_2_tap_button.jpg"), caption=GENDER_HINT_CAPTION),
+        InputMediaPhoto(media=GENDER_HINT_FILE_ID_1),
+        InputMediaPhoto(media=GENDER_HINT_FILE_ID_2, caption=GENDER_HINT_CAPTION),
     ]
 
 LEAD_SOURCE_DETAILS_PROMPTS = {
