@@ -60,7 +60,7 @@ REGISTRATION_PROMPTS = {
     Registration.entering_dob.state: (
         "Введи свою <b>дату народження</b> у форматі ДД.ММ.РРРР (наприклад: 24.08.2011):", None,
     ),
-    Registration.entering_email.state: ("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)?", None),
+    Registration.entering_email.state: ("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)? На неї ми створимо акаунт у SvitloSchool", None),
     # Живий флоу шле це двома окремими повідомленнями (коротке питання + інструкція з кнопкою) —
     # тут навмисно один об'єднаний текст, тому що для resume-контексту зайве повідомлення не потрібне.
     Registration.entering_phone.state: (
@@ -463,6 +463,8 @@ async def process_city(message: Message, state: FSMContext):
     await state.update_data(city=city)
     await state.set_state(Registration.entering_displaced_bool)
     await message.answer("Дякую! 50% заявки вже позаду 😉")
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    await asyncio.sleep(1)
     await ut.step_answer(message, 
         "<b>Чи довелося тобі змінити місце проживання через війну?</b>",
         reply_markup=kb.get_boolean_kb()
