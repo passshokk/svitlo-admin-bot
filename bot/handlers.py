@@ -602,10 +602,7 @@ async def first_ticket_message(message: Message, state: FSMContext):
         # щоб ActiveTicketFilter пропускав діалог з куратором; в реєстрацію
         # повернемо через _resume_paused_registration(), коли тікет закриють.
         await state.set_state(None)
-        await message.answer(
-            "<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...\n\n"
-            "Прогрес реєстрації збережено — продовжиш одразу, як тільки розберемось з питанням"
-        )
+        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
     else:
         await state.clear()
         await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
