@@ -7,7 +7,7 @@ from aiogram.fsm.storage.base import StorageKey
 import re
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
-from uvicorn import logging
+import logging
 
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
@@ -588,7 +588,14 @@ async def first_ticket_message(message: Message, state: FSMContext):
     )
 
     if not message.text:
-        await message.copy_to(chat_id=cfg.CURATOR_GROUP_ID, reply_to_message_id=ticket_id)
+        try:
+            await message.copy_to(
+                chat_id=cfg.CURATOR_GROUP_ID,
+                message_thread_id=thread_id,
+                reply_to_message_id=ticket_id
+            )
+        except Exception as e:
+            logging.error(f"Не вдалося переслати медіа тікета #{ticket_id}: {e}")
 
     if return_state:
         # НЕ .clear() — він стер би й дані анкети. Просто виходимо зі стану,
@@ -687,6 +694,7 @@ async def process_email_input(message: Message, state: FSMContext):
 async def user_follow_up_message(message: Message, active_ticket: dict):
     # active_ticket прилітає напряму з фільтра
     ticket_id = active_ticket['ticket_id']
+    thread_id = cfg.CATEGORY_THREADS.get(active_ticket.get('category'))
     text_content = message.text or message.caption or "[Медіафайл]"
     await db.append_user_message(ticket_id, text_content)
 
@@ -694,6 +702,7 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
     if message.text:
         await message.bot.send_message(
             chat_id=cfg.CURATOR_GROUP_ID,
+            message_thread_id=thread_id,
             text=f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>\n{message.text}",
             parse_mode="HTML",
             reply_to_message_id=ticket_id
@@ -703,22 +712,29 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
         try:
             await message.copy_to(
                 chat_id=cfg.CURATOR_GROUP_ID,
+                message_thread_id=thread_id,
                 caption=custom_caption,
                 parse_mode="HTML",
                 reply_to_message_id=ticket_id
             )
-        except Exception:
-            # Якщо це стікер або "кружечок"
-            await message.bot.send_message(
-                chat_id=cfg.CURATOR_GROUP_ID, 
-                text=f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>", 
-                parse_mode="HTML",
-                reply_to_message_id=ticket_id
-            )
-            await message.copy_to(
-                chat_id=cfg.CURATOR_GROUP_ID,
-                reply_to_message_id=ticket_id
-            )
+        except Exception as e:
+            logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} (спроба з caption): {e}")
+            # Якщо це стікер або "кружечок" — вони не підтримують caption/reply_to одночасно
+            try:
+                await message.bot.send_message(
+                    chat_id=cfg.CURATOR_GROUP_ID,
+                    message_thread_id=thread_id,
+                    text=f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>",
+                    parse_mode="HTML",
+                    reply_to_message_id=ticket_id
+                )
+                await message.copy_to(
+                    chat_id=cfg.CURATOR_GROUP_ID,
+                    message_thread_id=thread_id,
+                    reply_to_message_id=ticket_id
+                )
+            except Exception as e2:
+                logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} (fallback): {e2}")
 
 @support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID, F.reply_to_message)
 async def curator_reply_handler(message: Message):
@@ -817,13 +833,17 @@ async def curator_reply_handler(message: Message):
                 caption=custom_caption,
                 parse_mode="HTML"
             )
-        except Exception:
-            await message.bot.send_message(
-                chat_id=user_id, 
-                text=f"👤 <b>{curator_name}:</b>", 
-                parse_mode="HTML"
-            )
-            await message.copy_to(chat_id=user_id)
+        except Exception as e:
+            logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} студенту (спроба з caption): {e}")
+            try:
+                await message.bot.send_message(
+                    chat_id=user_id,
+                    text=f"👤 <b>{curator_name}:</b>",
+                    parse_mode="HTML"
+                )
+                await message.copy_to(chat_id=user_id)
+            except Exception as e2:
+                logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} студенту (fallback): {e2}")
     
     try:
         await message.react(reaction=[ReactionTypeEmoji(emoji="👍")])
