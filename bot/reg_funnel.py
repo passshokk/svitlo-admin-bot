@@ -49,7 +49,7 @@ REGISTRATION_PROMPTS = {
     # Живий флоу шле це двома окремими повідомленнями (коротке питання + інструкція з кнопкою) —
     # тут навмисно один об'єднаний текст, тому що для resume-контексту зайве повідомлення не потрібне.
     Registration.entering_phone.state: (
-        "Який твій <b>номер телефону</b>? Натисни кнопку «Поділитись номером» нижче ↘️",
+        "Щоб поділитись <b>номером телефону</b>, натисни кнопку «Поділитись номером» нижче ↘️",
         kb.get_number_for_registration_kb,
     ),
     Registration.entering_country.state: ("<b>У якій країні</b> ти зараз проживаєш?", None),
@@ -91,11 +91,11 @@ def _prompt(state) -> str:
     return REGISTRATION_PROMPTS[state.state][0]
 
 
-
 reg_router = Router()
 # Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID
 reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
 reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
+
 
 # ===============================================================
 # region INTERCEPTORS
@@ -348,12 +348,9 @@ async def process_email(message: Message, state: FSMContext):
     await state.update_data(email=email)
     await state.set_state(Registration.entering_phone)
     
-    # Повідомлення 1
-    await ut.step_answer(message, "Який твій <b>номер телефону</b>?")
-    # Повідомлення 2: Інструкція + HTML Blockquote
     phone_instructions = (
-        "Тобі варто лиш <b>натиснути кнопку \n«Поділитись номером»</b> нижче — Telegram зробить усе за тебе! "
-        "Це допоможе нам зберегти твій телефон у правильному форматі та залишатись на зв'язку 😌\n\n"
+        "Дякую, тепер <b>натисни кнопку «Поділитись номером»</b> нижче, аби надіслати нам свій контакт!"
+        "Це допоможе зберегти твій номер телефону в правильному форматі та залишатись на зв'язку 😌\n\n"
         "<blockquote>ℹ️ Telegram може відкрити стандартне системне вікно для верифікації — "
         "<b>це безпечна процедура авторизації, просто підтвердь дію</b></blockquote>"
     )
