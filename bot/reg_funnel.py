@@ -20,6 +20,10 @@ from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
 from core import config as cfg
 from bot.filters import IsTesterFilter
 
+# ===============================================================
+# region CONSTANTS
+# ===============================================================
+
 EDIT_FIELD_PROMPTS = {
     "firstName": "Введи нове <b>ім'я</b> (англійською):",
     "lastName": "Введи нове <b>прізвище</b> (англійською):",
@@ -90,12 +94,14 @@ def _prompt(state) -> str:
     """Текст питання для стану анкети — щоб не дублювати рядки в per-step хендлерах нижче"""
     return REGISTRATION_PROMPTS[state.state][0]
 
+# endregion =====================================================
+# ROUTERS
+# ===============================================================
 
 reg_router = Router()
 # Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID
 reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
 reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
-
 
 # ===============================================================
 # region INTERCEPTORS

@@ -148,58 +148,9 @@ async def cmd_menu(message: Message, state: FSMContext):
         reply_markup=kb.get_main_menu()
     )
 
-@private_router.message(Command("profile"), F.chat.type == "private")
-async def cmd_profile(message: Message, state: FSMContext):
-    await state.clear()
-    student = student_ctx.get()
-
-    text = ut.get_profile_text(student['data'])
-    await message.answer(text)
-
 @public_router.message(Command("prefect"))
 async def handle_prefect_check(message: Message):
     await message.answer("Ну ти олдятіна))")
-
-@private_router.message(Command("house"), F.chat.type == "private")
-async def cmd_house_smart_access(message: Message, state: FSMContext):
-    await state.clear()
-    student = student_ctx.get()
-    data = student['data']
-    house_name = data.get("house")
-    
-    if not house_name or house_name == "Newbie":
-        await message.answer("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!")
-        return
-
-    if data.get("hasHouseAccess", False):
-        await message.answer("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
-        return
-
-    target_chat_id = cfg.HOUSE_CHATS.get(house_name)
-    if not target_chat_id:
-        await message.answer(f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора.", reply_markup=kb.get_pasha_curator_keyboard())
-        return
-
-    try:
-        invite = await message.bot.create_chat_invite_link(
-            chat_id=target_chat_id, member_limit=1
-        )
-        
-        await db.grant_house_access(student['id'])
-        await message.answer(
-            f"🎉 Тобі надано доступ в <b>{house_name}</b>!\n\n"
-            f"Ось твоє персональне одноразове посилання:\n{invite.invite_link}", 
-            parse_mode="HTML"
-        )
-        
-        await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
-        
-    except Exception as e:
-        await message.answer(
-            "❌ Помилка при генерації посилання. Бот має бути адміном у групі.", 
-            reply_markup=kb.get_pasha_curator_keyboard()
-        )
-        print(f"Error generating house link: {e}")
 
 # endregion =====================================================
 # region CALLBACKS
