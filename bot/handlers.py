@@ -274,9 +274,6 @@ async def start_support_inline(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await _open_help_category_picker(callback.message.answer, callback.from_user.id, state)
 
-# /help поза реєстрацією (idle або будь-який інший стан) — той самий флоу, що й кнопка.
-# Хендлер /help під час реєстрації живе окремо в reg_funnel.py (там своя, авто-категорійна гілка)
-# і перехоплює команду раніше, бо reg_router підключений до tg_router першим.
 @public_router.message(Command("help"))
 async def start_support_command(message: Message, state: FSMContext):
     await _open_help_category_picker(message.answer, message.from_user.id, state)
@@ -324,7 +321,7 @@ async def _resume_paused_registration(bot, user_id: int) -> None:
     await student_state.set_state(return_state)
     await bot.send_message(
         chat_id=user_id,
-        text="✅ Питання вирішено — продовжуємо реєстрацію! Нагадую останнє питання анкети:",
+        text="✅ Питання вирішено — продовжуємо реєстрацію! Нагадую останнє питання анкети",
         parse_mode="HTML"
     )
     # Дублюємо точний текст (і кнопки) останнього кроку — довга переписка з куратором

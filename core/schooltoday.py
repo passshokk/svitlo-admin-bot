@@ -73,6 +73,9 @@ def map_svitlo_to_pupil_payload(doc_id: str, svitlo_doc: dict) -> dict:
     тощо), йдуть у customData як пари name/value — назви полів мають точно
     збігатися з тими, що розробник SchoolToday створить у себе в адмінці.
     """
+    birth_date = svitlo_doc.get("birthDate")
+    birthday = birth_date.strftime("%Y-%m-%d") if hasattr(birth_date, "strftime") else birth_date
+
     custom_data = [
         {"name": "Telegram ID", "value": str(svitlo_doc.get("telegramId", ""))},
         {"name": "Parent Full Name", "value": f"{svitlo_doc.get('parentFirstName', '')} {svitlo_doc.get('parentLastName', '')}".strip()},
@@ -88,7 +91,7 @@ def map_svitlo_to_pupil_payload(doc_id: str, svitlo_doc: dict) -> dict:
     return {
         "firstName": svitlo_doc.get("firstName", ""),
         "lastName": svitlo_doc.get("lastName", ""),
-        "birthday": svitlo_doc.get("birthDate"),
+        "birthday": birthday,
         EXTERNAL_ID_FIELD: doc_id,
         # TODO: підтвердити з розробником SchoolToday
         "gender": None,  # мапінг "Male"/"Female" -> int gender, значення enum невідомі
