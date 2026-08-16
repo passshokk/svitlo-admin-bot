@@ -619,14 +619,22 @@
         // камери спрацьовувало б по кілька разів на один тап).
         function initTorch() {
             torchOn = false;
+            const wasAvailable = torchBtn.classList.contains('available');
             torchBtn.classList.remove('available', 'on');
 
             const track = mediaStream.getVideoTracks()[0];
-            if (!track || typeof track.getCapabilities !== 'function') return;
-            const caps = track.getCapabilities();
-            if (!caps || !caps.torch) return;
+            const caps = (track && typeof track.getCapabilities === 'function') ? track.getCapabilities() : null;
+            const isAvailable = !!(caps && caps.torch);
+            if (isAvailable) torchBtn.classList.add('available');
 
-            torchBtn.classList.add('available');
+            // .segment-control ділить простір з іконками (flex:1 проти flex:0 0 42px),
+            // тому поява/зникнення ліхтарика змінює ширину вкладок. Індикатор
+            // рахує позицію в пікселях один раз при завантаженні — без цього
+            // перерахунку жовта пігулка лишається на старому місці, поки
+            // користувач не тапне вкладку чи не поверне екран.
+            if (isAvailable !== wasAvailable) {
+                moveSegmentIndicator(document.querySelector('.segment-btn.active'));
+            }
         }
 
         // Один постійний обробник — щоразу читає АКТУАЛЬНИЙ mediaStream,

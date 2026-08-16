@@ -969,7 +969,7 @@ async def admin_approve_lead(callback: CallbackQuery):
     })
     await db.update_crm_stage(doc_id, "student")
 
-    
+
     # 2. Оновлюємо інтерфейс куратора
     reviewer_name = callback.from_user.full_name
     await callback.message.edit_text(
@@ -978,8 +978,8 @@ async def admin_approve_lead(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=None # Видаляємо кнопки
     )
-    
 
+    
     # 3. Асинхронно синхронізуємо студента з SchoolToday (через Cloud Tasks, щоб не блокувати вебхук)
     await enqueue_task("/tasks/schooltoday_enroll", {"doc_id": doc_id})
 
