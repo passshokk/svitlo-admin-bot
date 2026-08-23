@@ -4,6 +4,7 @@ import os
 from zoneinfo import ZoneInfo
 import httpx
 import re
+import phonenumbers
 from aiogram.types import BotCommand, BotCommandScopeChat, Message
 
 from core import config as cfg
@@ -99,6 +100,48 @@ def is_russian_phone_number(phone: str) -> bool:
     if clean_phone.startswith(('+79', '+73', '+74', '+78', '89')):
         return True
     return False
+
+
+# Українські мобільні коди без провідного нуля — для відновлення номерів,
+# у яких загубився префікс країни (напр. "978815630" замість "+380978815630")
+UA_MOBILE_CODES = {
+    "39", "50", "63", "66", "67", "68", "73",
+    "91", "92", "93", "94", "95", "96", "97", "98", "99",
+}
+
+
+def normalize_phone(raw: str) -> str | None:
+    """Зводить номер до канонічного E.164 або повертає None, якщо він невалідний.
+
+    Регулярка виду `^\\+[1-9]\\d{7,14}$` пропускає обрізані номери — саме через неї
+    в базі осіли записи на кшталт `+38068823020` (11 цифр замість 12). Тут довжини й
+    діапазони операторів перевіряє phonenumbers, тому такі номери відсіюються.
+
+    Перед розбором застосовуємо два відновлення для українських шаблонів:
+    дев'ять цифр із кодом оператора та десять цифр у форматі 0XXXXXXXXX.
+    """
+    if not raw or not raw.strip():
+        return None
+
+    # Якщо номерів кілька через кому — беремо перший
+    digits = re.sub(r'\D', '', raw.split(',')[0])
+    if not digits:
+        return None
+
+    if len(digits) == 9 and digits[:2] in UA_MOBILE_CODES:
+        digits = "380" + digits
+    elif len(digits) == 10 and digits[0] == "0" and digits[1:3] in UA_MOBILE_CODES:
+        digits = "38" + digits
+
+    try:
+        parsed = phonenumbers.parse("+" + digits, None)
+    except phonenumbers.NumberParseException:
+        return None
+
+    if not phonenumbers.is_valid_number(parsed):
+        return None
+
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 def is_gibberish_name(name: str) -> bool:
     """Евристика для відсіювання явно фейкових імен: без жодної голосної або з довгим повтором однієї літери (напр. 'Xzcvbn', 'Aaaaaa')"""

@@ -17,7 +17,7 @@ from bot.states import Registration, TicketFSM
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
 from api.task_manager import enqueue_task
-from core.config import PHONE_REGEX, EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
+from core.config import EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
 from core import config as cfg
 from bot.filters import IsTesterFilter
 
@@ -390,8 +390,10 @@ async def process_phone_contact(message: Message, state: FSMContext):
         await ut.step_answer(message, "⚠️ Будь ласка, надішли саме свій контакт за допомогою кнопки <b>«Поділитись номером»</b> внизу екрана ↘️")
         return
     
-    phone = message.contact.phone_number
-    phone = '+' + phone if not phone.startswith('+') else phone
+    phone = ut.normalize_phone(message.contact.phone_number)
+    if not phone:
+        await ut.step_answer(message, "⚠️ Не вдалося розпізнати номер. Спробуй надіслати контакт ще раз ↘️")
+        return
 
     student = student_ctx.get()
     if not student:
@@ -558,10 +560,9 @@ async def process_parent_email(message: Message, state: FSMContext):
 
 @reg_router.message(Registration.entering_parent_phone, F.text)
 async def process_parent_phone(message: Message, state: FSMContext):
-    phone = message.text.strip()
-    phone = '+' + phone if not phone.startswith('+') else phone
-    if not re.match(PHONE_REGEX, phone):
-        await ut.step_answer(message, "⚠️ Некоректний формат. Введи номер у міжнародному форматі (+380...):")
+    phone = ut.normalize_phone(message.text)
+    if not phone:
+        await ut.step_answer(message, "⚠️ Такого номера не існує. Перевір цифри й введи у міжнародному форматі (+380...):")
         return
 
     data = await state.get_data()
