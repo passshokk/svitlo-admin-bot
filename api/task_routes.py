@@ -78,7 +78,7 @@ async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
             if permanent else "Спроба повториться автоматично.")
     try:
         await bot.send_message(
-            cfg.CURATOR_GROUP_ID,
+            cfg.ADMIN_GROUP_ID,
             f"{kind}\n\n"
             f"<b>Студент:</b> {name}\n"
             f"<b>Пошта:</b> {student.get('email') or '—'}\n"
