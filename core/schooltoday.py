@@ -507,6 +507,6 @@ async def enroll(doc_id: str, doc: dict) -> dict[str, int | None]:
 
     if parent_id:
         # Окремим викликом, бо на момент створення дітей у батька ще не було.
-        await update_parent(parent_id, {"grantAccess": True})
+        await update_parent(parent_id, {"grantAccess": False})
 
     return {"pupilId": pupil_id, "parentId": parent_id}
