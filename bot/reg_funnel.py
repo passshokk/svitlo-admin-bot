@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from google.cloud import firestore
 import asyncio
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -14,7 +15,11 @@ from core.database import db as firestore_client
 from bot import keyboards as kb
 from core import utils as ut
 from bot.states import Registration, TicketFSM
-from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
+from core.constants import (
+    QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG,
+    LEAD_INTERLUDE_2_MSG, SCANNER_MSG,
+    APPLICATION_CONFIRMED_MSG, APPLICATION_CONFIRMED_NO_CHAT_MSG,
+)
 from core.context import student_ctx
 from api.task_manager import enqueue_task, SCHOOLTODAY_QUEUE
 from core.config import EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
@@ -1085,19 +1090,48 @@ async def admin_approve_lead(callback: CallbackQuery):
     elif gender == "Female": dp_gender = "студентка"
     else: dp_gender = "студент(-ка)"
 
-    formatted_text = APPLICATION_CONFIRMED_MSG.format(
+    # Персональне посилання в чат вікової групи. Без expire_date навмисно:
+    # від схвалення до початку занять минає близько двох тижнів, і одноденне
+    # посилання встигло б протухнути ще до того, як учень ним скористається.
+    # member_limit=1 лишає його одноразовим.
+    invite_link = None
+    target_chat_id = cfg.GROUPS_MAPPING.get(data.get("ageGroup"))
+    if target_chat_id:
+        try:
+            invite = await callback.bot.create_chat_invite_link(
+                chat_id=int(target_chat_id), member_limit=1
+            )
+            invite_link = invite.invite_link
+        except Exception as exc:
+            logging.error("Не вдалося створити посилання в чат для %s: %s", doc_id, exc)
+
+    term_start = await db.get_term_start_date()
+    template = APPLICATION_CONFIRMED_MSG if invite_link else APPLICATION_CONFIRMED_NO_CHAT_MSG
+    formatted_text = template.format(
         name=first_name,
         student=dp_gender,
-        term_start_date="Понеділок, 14 вересня 2026 року",
-        schooltoday_link="https://school-today.com/Profile"
+        email=data.get("email") or "твою пошту",
+        term_start_date=term_start,
     )
 
     await callback.bot.send_message(
         chat_id=user_id,
         text=formatted_text,
         parse_mode="HTML",
-        reply_markup=kb.get_start_menu() # Кнопка "Отримати доступ"
+        disable_web_page_preview=True,
+        reply_markup=kb.get_welcome_chat_kb(invite_link) if invite_link else None,
     )
+
+    if invite_link:
+        await db.grant_access_to_student(doc_id, user_id)
+    else:
+        # Куратор має дізнатись одразу: учень лишився без чату й чекає посилання
+        await callback.bot.send_message(
+            cfg.CURATOR_GROUP_ID,
+            f"⚠️ <b>{first_name}</b> схвалений, але посилання в чат не створилось.\n"
+            f"Вікова група: <code>{data.get('ageGroup') or '—'}</code>\n"
+            f"Надішли посилання вручну.",
+        )
 
 # endregion =====================================================
 # region FALLBACKs

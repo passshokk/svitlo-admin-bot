@@ -344,6 +344,24 @@ async def set_current_semester(value: str) -> None:
         {"currentSemester": value.strip()}, merge=True
     )
 
+
+# Дата початку занять — показується учневі у вітальному повідомленні після
+# схвалення заявки. Раніше була рядком у коді й устигла застаріти: зміна дати
+# не має вимагати деплою.
+_TERM_START_FALLBACK = "Понеділок, 14 вересня 2026 року"
+
+
+async def get_term_start_date() -> str:
+    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
+    data = doc.to_dict() if doc.exists else {}
+    return (data.get("termStartDate") or "").strip() or _TERM_START_FALLBACK
+
+
+async def set_term_start_date(value: str) -> None:
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
+        {"termStartDate": value.strip()}, merge=True
+    )
+
 async def _get_testers_map() -> dict[str, str | None]:
     """Повертає {str(tg_id): username} з поля testers у Config/bot_settings (порожній dict, якщо поля ще нема)."""
     doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
