@@ -25,13 +25,22 @@ from bot.filters import IsTesterFilter
 # region CONSTANTS
 # ===============================================================
 
+# SSoT для тексту і клавіатур кожного поля редагування анкети (той самий підхід, що й REGISTRATION_PROMPTS нижче)
 EDIT_FIELD_PROMPTS = {
-    "firstName": "Введи нове <b>ім'я</b> (англійською):",
-    "lastName": "Введи нове <b>прізвище</b> (англійською):",
-    "birthDate": "Введи нову <b>дату народження</b> (ДД.ММ.РРРР):",
-    "email": "Введи новий <b>Email</b>:",
-    "country": "Введи нову <b>країну</b> проживання:",
-    "city": "Введи нове <b>місто</b> проживання:"
+    "firstName": ("Введи нове <b>ім'я</b> (англійською):", None),
+    "lastName": ("Введи нове <b>прізвище</b> (англійською):", None),
+    "birthDate": ("Введи нову <b>дату народження</b> (ДД.ММ.РРРР):", None),
+    "email": ("Введи новий <b>Email</b>:", None),
+    "country": ("Введи нову <b>країну</b> проживання:", None),
+    "city": ("Введи нове <b>місто</b> проживання:", None),
+    "isDisplaced": ("<b>Чи довелося тобі змінити місце проживання через війну?</b>", kb.get_boolean_kb),
+    "displacedRegion": ("Введи нову <b>область України</b>, з якої ти переїхав(-ла):", None),
+    "parentFirstName": ("Введи нове <b>ім'я відповідальної особи</b> (батько/матір/опікун):", None),
+    "parentLastName": ("Введи нове <b>прізвище відповідальної особи</b>:", None),
+    "parentEmail": ("Введи новий <b>Email відповідальної особи</b>:", None),
+    "parentPhone": ("Введи новий <b>номер телефону відповідальної особи</b> (наприклад, +380...):", None),
+    "hasHealthIssues": ("<b>Чи є в тебе особливі потреби</b>, пов'язані зі станом здоров'я або інвалідністю?", kb.get_boolean_kb),
+    "healthIssuesDetails": ("Опиши коротко <b>особливі потреби</b>:", None),
 }
 
 GENDER_HINT_CAPTION = "👀 Підказка: для деяких запитань використовуйте вбудовані кнопки вибору. Як їх знайти, дивіться на фото"
@@ -693,7 +702,8 @@ async def select_field_to_edit(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Registration.editing_field)
 
     await callback.message.delete()
-    await ut.step_answer(callback.message, EDIT_FIELD_PROMPTS[field])
+    text, kb_getter = EDIT_FIELD_PROMPTS[field]
+    await ut.step_answer(callback.message, text, reply_markup=kb_getter() if kb_getter else None)
 
 @reg_router.message(Registration.editing_field)
 async def process_field_edit(message: Message, state: FSMContext):
@@ -752,6 +762,67 @@ async def process_field_edit(message: Message, state: FSMContext):
         if ut.is_russian_country_input(val):
             return await ut.step_answer(message, "⚠️ Доступ до реєстрації в Svitlo School обмежено")
         await state.update_data(city=val)
+
+    elif field == "isDisplaced":
+        text = message.text.strip().lower()
+        if text == "так":
+            await state.update_data(isDisplaced=True, editingField="displacedRegion")
+            prompt_text, _ = EDIT_FIELD_PROMPTS["displacedRegion"]
+            return await ut.step_answer(message, prompt_text, reply_markup=ReplyKeyboardRemove())
+        elif text == "ні":
+            await state.update_data(isDisplaced=False, displacedRegion="")
+        else:
+            return await ut.step_answer(message, "⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
+
+    elif field == "displacedRegion":
+        val = message.text.strip().title()
+        if not re.match(UKR_REGEX, val):
+            return await ut.step_answer(message, "⚠️ Будь ласка, вкажи область українською мовою")
+        await state.update_data(displacedRegion=val)
+
+    elif field == "parentFirstName":
+        val = message.text.strip().title()
+        if not re.match(UKR_REGEX, val):
+            return await ut.step_answer(message, "⚠️ Будь ласка, вкажи ім'я українською мовою")
+        await state.update_data(parentFirstName=val)
+
+    elif field == "parentLastName":
+        val = message.text.strip().title()
+        if not re.match(UKR_REGEX, val):
+            return await ut.step_answer(message, "⚠️ Будь ласка, вкажи прізвище українською мовою")
+        await state.update_data(parentLastName=val)
+
+    elif field == "parentEmail":
+        val = message.text.lower().strip()
+        if not re.match(EMAIL_REGEX, val):
+            return await ut.step_answer(message, "⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
+        if val == data.get('email'):
+            return await ut.step_answer(message, "⚠️ Це та сама пошта, що і твоя особиста. Будь ласка, вкажи пошту одного з батьків/опікунів:")
+        if await _check_email_typo(message, state, val, "editParentEmailTypoPending"):
+            return
+        await state.update_data(parentEmail=val)
+
+    elif field == "parentPhone":
+        phone = ut.normalize_phone(message.text)
+        if not phone:
+            return await ut.step_answer(message, "⚠️ Такого номера не існує. Перевір цифри й введи у міжнародному форматі (+380...):")
+        if phone == data.get('phone'):
+            return await ut.step_answer(message, "⚠️ Це той самий номер, що і твій особистий. Будь ласка, вкажи номер одного з батьків/опікунів (+380...):")
+        await state.update_data(parentPhone=phone)
+
+    elif field == "hasHealthIssues":
+        text = message.text.strip().lower()
+        if text == "так":
+            await state.update_data(hasHealthIssues=True, editingField="healthIssuesDetails")
+            prompt_text, _ = EDIT_FIELD_PROMPTS["healthIssuesDetails"]
+            return await ut.step_answer(message, prompt_text, reply_markup=ReplyKeyboardRemove())
+        elif text == "ні":
+            await state.update_data(hasHealthIssues=False, healthIssuesDetails="")
+        else:
+            return await ut.step_answer(message, "⚠️ Будь ласка, обери «Так» або «Ні»:", reply_markup=kb.get_boolean_kb())
+
+    elif field == "healthIssuesDetails":
+        await state.update_data(healthIssuesDetails=message.text.strip())
 
     # Очищуємо поле та повертаємо користувача до підтвердження
     await state.update_data(editingField=None)
@@ -1101,8 +1172,10 @@ async def render_registration_prompt(bot, user_id: int, state_str: str, data: di
         return
 
     if state_str == Registration.editing_field.state:
-        text = EDIT_FIELD_PROMPTS.get(data.get("editingField"), "Продовж введення даних:")
-        await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
+        text, kb_getter = EDIT_FIELD_PROMPTS.get(data.get("editingField"), ("Продовж введення даних:", None))
+        await bot.send_message(
+            chat_id=user_id, text=text, parse_mode="HTML", reply_markup=kb_getter() if kb_getter else None,
+        )
         return
 
     if state_str == Registration.confirming_data.state:
