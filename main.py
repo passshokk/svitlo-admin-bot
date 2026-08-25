@@ -38,16 +38,16 @@ async def handle_unexpected_error(event: ErrorEvent) -> bool:
     logging.error("Unhandled update error", exc_info=(type(exc), exc, exc.__traceback__))
 
     update = event.update
-    chat_id = None
+    chat = None
     if update.message:
-        chat_id = update.message.chat.id
+        chat = update.message.chat
     elif update.callback_query and update.callback_query.message:
-        chat_id = update.callback_query.message.chat.id
+        chat = update.callback_query.message.chat
 
-    if chat_id:
+    if chat and chat.type == "private":
         try:
             await bot.send_message(
-                chat_id,
+                chat.id,
                 "⚠️ Сталася тимчасова технічна помилка. Спробуй, будь ласка, повторити останню дію — якщо не допоможе, напиши /help"
             )
         except Exception:
