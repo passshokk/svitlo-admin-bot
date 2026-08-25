@@ -73,8 +73,6 @@ async def close_client() -> None:
 # ---------------------------------------------------------------------------
 
 FIELD_IDS = {
-    "age_group": 22,
-    "house": 23,            # legacy-копія нативного pupilTypeID, ми в неї НЕ пишемо
     "health": 27,
     "lead_source": 29,
     "tg_nickname": 30,
@@ -88,10 +86,9 @@ FIELD_IDS = {
 
 # Поля, які пише бот.
 #
-# «house» і «age_group» свідомо поза списком — це кастомні копії фактів, що вже
-# є в нативних полях: House дублює pupilTypeID (і розходився з ним у 139 картках),
-# а вікова група виводиться з classID та birthDate. Обидва поля підлягають
-# видаленню в налаштуваннях школи; доти ми в них просто не пишемо.
+# «house» і «age_group» відсутні в FIELD_IDS — це були кастомні копії фактів,
+# що вже є в нативних полях (House дублював pupilTypeID, вікова група виводиться
+# з classID та birthDate). Школа видалила обидва поля в налаштуваннях.
 #
 # «roles» веде школа — ми його лише читаємо й переносимо при повній заміні масиву.
 WRITABLE_FIELDS = (
@@ -100,7 +97,6 @@ WRITABLE_FIELDS = (
 )
 
 GENDER = {"Male": 0, "Female": 1}
-AGE_GROUP = {"older": "14-18 років", "younger": "10-13 років"}
 CLASS_BY_AGE_GROUP = {"older": "Older Student", "younger": "Younger Student"}
 ROLE_SEPARATOR = ";"
 
@@ -353,7 +349,6 @@ async def build_pupil_custom_data(doc: dict) -> dict[str, str]:
     registry = await get_registry()
     name = registry["field_name"]
     values = {
-        "age_group": AGE_GROUP.get(doc.get("ageGroup"), ""),
         "health": _yes_no(doc.get("hasHealthIssues")),
         "health_details": doc.get("healthIssuesDetails") or "",
         "lead_source": doc.get("leadSource") or "",
