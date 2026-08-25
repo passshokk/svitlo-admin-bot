@@ -99,7 +99,7 @@ async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
     
     payload = {
         # ⚙️ System & Tracking
-        "semester": "01_26-27", #current semester number
+        "semester": await get_current_semester(),
         "telegramId": tg_id,
         "telegramUsername": username or "",
         "stage": "lead",
@@ -324,6 +324,25 @@ async def set_user_fsm_state(user_id: int | str, state_str: str):
 # region --- Tester Access Control
 
 _TESTERS_DOC = ("Config", "bot_settings")
+
+# Поточний семестр. Формат `номер_рік-рік` — саме його очікує core.utils при
+# рендері профілю, а `prior_semesters` зарезервовано для перенесених учнів.
+# Значення живе у Firestore, а не в коді: інакше з першим днем нового семестру
+# всі реєстрації тихо отримували б чужу когорту, і помітили б це нескоро —
+# нічого ж не падає.
+_SEMESTER_FALLBACK = "01_26-27"
+
+
+async def get_current_semester() -> str:
+    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
+    data = doc.to_dict() if doc.exists else {}
+    return (data.get("currentSemester") or "").strip() or _SEMESTER_FALLBACK
+
+
+async def set_current_semester(value: str) -> None:
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
+        {"currentSemester": value.strip()}, merge=True
+    )
 
 async def _get_testers_map() -> dict[str, str | None]:
     """Повертає {str(tg_id): username} з поля testers у Config/bot_settings (порожній dict, якщо поля ще нема)."""

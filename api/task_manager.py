@@ -9,6 +9,18 @@ PROJECT_ID = "svitlo-auth-bot"
 REGION = "europe-west3"
 QUEUE_NAME = "bot-tasks-queue"
 
+# Окрема черга під зарахування в SchoolToday, серіалізована в один потік.
+#
+# Загальна черга налаштована на 1000 одночасних задач — правильно для видалення
+# повідомлень і нагадувань, але згубно для ШС: унікальність externalID там
+# перевіряється на рівні застосунку, без захисту від гонки. Дві паралельні
+# спроби для одного учня створили б дві картки. Плюс сплеск на сотні одночасних
+# запитів майже напевно спіймає Cloudflare.
+#
+# Швидкість тут не потрібна: зарахування — фонова операція, і навіть тисячі
+# студентів пройдуть чергою за години.
+SCHOOLTODAY_QUEUE = "schooltoday-queue"
+
 SERVICE_URL = os.getenv("SERVICE_URL") 
 
 _async_client: tasks_v2.CloudTasksAsyncClient | None = None
@@ -20,18 +32,20 @@ def _get_async_tasks_client() -> tasks_v2.CloudTasksAsyncClient:
         _async_client = tasks_v2.CloudTasksAsyncClient()
     return _async_client
 
-async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0):
+async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0,
+                       queue: str = QUEUE_NAME):
     """
     Відправляє таску в Cloud Tasks.
     endpoint: шлях (наприклад, '/tasks/sla_check')
     payload: словник з даними
     delay_seconds: затримка у секундах (0 = миттєво)
+    queue: ім'я черги; для зарахувань — SCHOOLTODAY_QUEUE
     """
     if not SERVICE_URL:
         raise ValueError("SERVICE_URL is missing in environment variables.")
 
     client = _get_async_tasks_client()
-    parent = client.queue_path(PROJECT_ID, REGION, QUEUE_NAME)
+    parent = client.queue_path(PROJECT_ID, REGION, queue)
     url = f"{SERVICE_URL.rstrip('/')}{endpoint}"
 
     task = {

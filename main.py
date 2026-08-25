@@ -11,6 +11,7 @@ from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware, TicketConflictNoticeMiddleware
 from api.webapp_routes import webapp_router
 from core import utils as ut
+from core import schooltoday
 
 # === БЛОК ЛОГУВАННЯ ===
 # Залишаємо INFO як базовий рівень для кастомних логів
@@ -62,6 +63,8 @@ async def lifespan(app: FastAPI):
     yield
     # Безпечне закриття сесії aiohttp при шатдауні контейнера
     await bot.session.close()
+    # Пул з'єднань до SchoolToday живе весь час роботи процесу — закриваємо явно
+    await schooltoday.close_client()
     logging.info("Svitlo Bot backend shutting down")
 
 

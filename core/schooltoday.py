@@ -39,6 +39,35 @@ _TIMEOUT = httpx.Timeout(30.0, connect=10.0, read=120.0)
 # Ретраї навмисно не робимо: виклики йдуть через Cloud Tasks, які повторюють самі.
 # Ідемпотентність забезпечує externalID.
 
+# Один клієнт на процес, а не новий на кожен виклик. Одне зарахування — чотири
+# запити; без пулу кожен починався б із повного TLS-рукостискання, і на потоці
+# реєстрацій це тисячі зайвих з'єднань.
+_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
+
+
+async def get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        async with _client_lock:
+            if _client is None or _client.is_closed:
+                _client = httpx.AsyncClient(
+                    base_url=BASE_URL,
+                    headers=_HEADERS,
+                    timeout=_TIMEOUT,
+                    limits=httpx.Limits(max_connections=20,
+                                        max_keepalive_connections=10),
+                )
+    return _client
+
+
+async def close_client() -> None:
+    """Викликати на shutdown застосунку."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
 # ---------------------------------------------------------------------------
 # Кастомні поля: звіряємось по id, назву беремо з довідника
 # ---------------------------------------------------------------------------
@@ -124,10 +153,8 @@ def _parse_error(response: httpx.Response) -> STError:
 
 async def _request(method: str, path: str, *, params: dict | None = None,
                    json: dict | None = None) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.request(
-            method, f"{BASE_URL}{path}", headers=_HEADERS, params=params, json=json
-        )
+    client = await get_client()
+    response = await client.request(method, path, params=params, json=json)
     if response.status_code >= 400:
         error = _parse_error(response)
         log.error("SchoolToday %s %s -> %s", method, path, error)

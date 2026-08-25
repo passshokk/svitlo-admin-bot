@@ -56,29 +56,80 @@ async def task_export_notion(request: Request):
         logging.error(f"Notion Export Task error: {e}")
         return Response(status_code=500)
     
+async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
+                                 permanent: bool) -> None:
+    """Пише невдачу в журнал і одразу повідомляє кураторів.
+
+    Без цього провалене зарахування помітне лише в логах, яких ніхто не читає
+    в реальному часі — учень просто тихо не з'являється у школі.
+    """
+    name = f"{student.get('firstName', '')} {student.get('lastName', '')}".strip() or doc_id
+    await db.db.collection("FailedEnrollments").document(doc_id).set({
+        "studentId": doc_id,
+        "studentName": name,
+        "email": student.get("email", ""),
+        "reason": reason,
+        "permanent": permanent,
+        "at": db.get_kyivtime_now(),
+    })
+
+    kind = "❌ <b>Зарахування не пройшло</b>" if permanent else "⚠️ <b>Зарахування впало</b>"
+    tail = ("Потрібне втручання — автоматично повторюватись не буде."
+            if permanent else "Спроба повториться автоматично.")
+    try:
+        await bot.send_message(
+            cfg.CURATOR_GROUP_ID,
+            f"{kind}\n\n"
+            f"<b>Студент:</b> {name}\n"
+            f"<b>Пошта:</b> {student.get('email') or '—'}\n"
+            f"<b>ID:</b> <code>{doc_id}</code>\n\n"
+            f"<b>Причина:</b> {reason}\n\n{tail}",
+        )
+    except Exception as exc:  # сповіщення не має ламати воркер
+        logging.error("Не вдалося повідомити кураторів про %s: %s", doc_id, exc)
+
+
 @tasks_router.post("/schooltoday_enroll")
 async def task_schooltoday_enroll(request: Request):
-    """Воркер Cloud Tasks: синхронізує зарахованого студента з SchoolToday."""
-    try:
-        payload = await request.json()
-        doc_id = payload["doc_id"]
-        doc = await db.db.collection('Svitlo').document(doc_id).get()
-        svitlo_data = doc.to_dict()
+    """Воркер Cloud Tasks: синхронізує зарахованого студента з SchoolToday.
 
+    Код відповіді визначає, чи Cloud Tasks повторить спробу, тому постійні й
+    тимчасові помилки треба розрізняти. `4xx` від SchoolToday — це «email вже
+    зайнятий» або «некоректні дані»: повторення їх не виправить, тож віддаємо
+    `200`, щоб задача не крутилась до вичерпання спроб. Усе інше — мережа,
+    таймаути, `5xx` — повторюємо.
+    """
+    payload = await request.json()
+    doc_id = payload["doc_id"]
+    doc = await db.db.collection("Svitlo").document(doc_id).get()
+    svitlo_data = doc.to_dict() or {}
+
+    try:
         # enroll() робить усю послідовність: картка батька, картка учня,
         # зв'язок між ними і лист-запрошення учневі. Ідемпотентна за externalID,
         # тож повторна спроба Cloud Tasks не створить дубля.
         result = await schooltoday.enroll(doc_id, svitlo_data)
-
-        # Зберігаємо ID карток, щоб наступні оновлення йшли без зайвого пошуку
-        await db.db.collection('Svitlo').document(doc_id).update({
-            "stPupilId": result["pupilId"],
-            "stParentId": result["parentId"],
-        })
-        return Response(status_code=200)
-    except Exception as e:
-        logging.error(f"SchoolToday Enroll Task error: {e}")
+    except schooltoday.STError as exc:
+        permanent = 400 <= exc.status < 500
+        reason = f"{exc.status}: {', '.join(exc.codes) or exc.raw}"
+        if exc.keys:
+            reason += f" (поля: {', '.join(exc.keys)})"
+        logging.error("SchoolToday enroll %s -> %s", doc_id, reason)
+        await _report_enroll_failure(doc_id, svitlo_data, reason, permanent)
+        return Response(status_code=200 if permanent else 500)
+    except Exception as exc:
+        logging.exception("SchoolToday enroll %s впало несподівано", doc_id)
+        await _report_enroll_failure(doc_id, svitlo_data, str(exc), permanent=False)
         return Response(status_code=500)
+
+    # Зберігаємо ID карток, щоб наступні оновлення йшли без зайвого пошуку
+    await db.db.collection("Svitlo").document(doc_id).update({
+        "stPupilId": result["pupilId"],
+        "stParentId": result["parentId"],
+    })
+    # Успіх знімає попередню відмітку про невдачу, якщо вона була
+    await db.db.collection("FailedEnrollments").document(doc_id).delete()
+    return Response(status_code=200)
 
 @tasks_router.post("/send_reminder")
 async def task_send_reminder(request: Request):

@@ -16,7 +16,7 @@ from core import utils as ut
 from bot.states import Registration, TicketFSM
 from core.constants import QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG, LEAD_INTERLUDE_2_MSG, SCANNER_MSG, APPLICATION_CONFIRMED_MSG
 from core.context import student_ctx
-from api.task_manager import enqueue_task
+from api.task_manager import enqueue_task, SCHOOLTODAY_QUEUE
 from core.config import EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
 from core import config as cfg
 from bot.filters import IsTesterFilter
@@ -996,7 +996,9 @@ async def admin_approve_lead(callback: CallbackQuery):
 
     
     # 3. Асинхронно синхронізуємо студента з SchoolToday (через Cloud Tasks, щоб не блокувати вебхук)
-    await enqueue_task("/tasks/schooltoday_enroll", {"doc_id": doc_id})
+    # Окрема черга: зарахування йдуть по одному, бо ШС не захищений від гонки
+    await enqueue_task("/tasks/schooltoday_enroll", {"doc_id": doc_id},
+                       queue=SCHOOLTODAY_QUEUE)
 
     # 4. Надсилаємо студенту привітання та Lock Screen меню
     doc = await firestore_client.collection('Svitlo').document(doc_id).get()

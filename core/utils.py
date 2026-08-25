@@ -288,7 +288,7 @@ async def export_to_notion(ticket_data: dict):
         ]
     }
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
         try:
             response = await client.post(url, headers=headers, json=payload)
             if response.status_code != 200:
