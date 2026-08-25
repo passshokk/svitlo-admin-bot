@@ -23,7 +23,7 @@ from bot.reg_funnel import reg_router, render_registration_prompt
 from bot.filters import ActiveTicketFilter, IsTesterFilter
 from core.bot_init import dp
 
-# region ROUTER --------------------------------
+# region ROUTER =================================================
 
 tester_router = Router()
 private_router = Router()
@@ -65,8 +65,10 @@ tg_router.include_router(fallback_router)
 
 
 # endregion =====================================================
-# region ADMIN: Tester Access Management
+# region ADMIN
 # ===============================================================
+
+# Tester Access Management
 # /testers: власник обирає "Добавити"/"Забрати" під повідомленням, тоді кидає юзера
 # через нативний пікер Telegram (без потреби мати його в контактах)
 
@@ -127,18 +129,36 @@ async def handle_tester_user_shared(message: Message):
         await db.remove_tester_id(target.user_id)
         await message.answer(f"🗑️ Прибрано з тестувальників: <code>{target.user_id}</code>{username_part}", reply_markup=ReplyKeyboardRemove())
 
+
+# Registration Period Control
+# /registration: власник перемикає, чи бачать нові ліди кнопку "Хочу зареєструватись" на /start.
+# Не прив'язано до списку тестувальників — це окремий продакшн-перемикач.
+
+def _registration_status_text(is_open: bool) -> str:
+    status = "🟢 Відкрита" if is_open else "🔴 Закрита"
+    return f"🎓 Реєстрація: {status}"
+
+@public_router.message(Command("registration"), F.from_user.id == cfg.OWNER_ID)
+async def cmd_registration(message: Message):
+    is_open = await db.get_registration_open()
+    await message.answer(
+        _registration_status_text(is_open),
+        reply_markup=kb.get_registration_toggle_kb(is_open)
+    )
+
+@public_router.callback_query(F.data.in_({"registration_open", "registration_close"}), F.from_user.id == cfg.OWNER_ID)
+async def cb_registration_toggle(callback: CallbackQuery):
+    is_open = callback.data == "registration_open"
+    await db.set_registration_open(is_open)
+    await callback.answer("Готово!")
+    await callback.message.edit_text(
+        _registration_status_text(is_open),
+        reply_markup=kb.get_registration_toggle_kb(is_open)
+    )
+
 # endregion =====================================================
 # region COMMANDS
 # ===============================================================
-
-@public_router.message(Command("start"), F.chat.type == "private")
-async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "Привіт! Я твій помічник у SvitloSchool ☺️\n<b>Ти вже є в загальному чаті своєї вікової групи?</b>",
-        parse_mode="HTML",
-        reply_markup=kb.get_start_menu()
-    )
 
 @public_router.message(Command("menu"), F.chat.type == "private")
 async def cmd_menu(message: Message, state: FSMContext):

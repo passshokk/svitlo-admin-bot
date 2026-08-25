@@ -72,8 +72,8 @@ async def grant_house_access(doc_id: str):
 # region --- Registration Workflow
 
 def generate_svitlo_id() -> str:
-    """Генерує композитний ID (формат: SV-YYMMDD-XXXXXXXX)"""
-    date_prefix = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d%m%y")
+    """Генерує композитний ID (формат: SV-YYMMDD-XXXXXXXX)."""
+    date_prefix = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%y%m%d")
     random_suffix = uuid.uuid4().hex[:8]
     return f"SV-{date_prefix}-{random_suffix}"
 
@@ -354,6 +354,24 @@ async def remove_tester_id(tg_id: int):
     """Прибирає пару (tg_id, username) зі списку тестувальників."""
     await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).update(
         {f"testers.{tg_id}": firestore.DELETE_FIELD}
+    )
+
+# endregion
+
+# ==========================
+# region --- Registration Period Control
+
+async def get_registration_open() -> bool:
+    """Чи відкрита реєстрація нових лідів (кнопка "Хочу зареєструватись" на /start).
+    Керується овнером через /registration. За замовчуванням закрита."""
+    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
+    data = doc.to_dict() if doc.exists else {}
+    return bool(data.get("registrationOpen", False))
+
+async def set_registration_open(is_open: bool):
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
+        {"registrationOpen": is_open},
+        merge=True,
     )
 
 # endregion

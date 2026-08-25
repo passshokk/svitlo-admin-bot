@@ -19,11 +19,13 @@ def get_start_menu() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_guest_start_menu() -> InlineKeyboardMarkup:
-    """Стартове меню для неідентифікованих користувачів (лідів)"""
+def get_guest_start_menu(registration_open: bool = True) -> InlineKeyboardMarkup:
+    """Стартове меню для неідентифікованих користувачів (лідів).
+    Кнопка "Хочу зареєструватись" з'являється лише поки реєстрація відкрита овнером (/registration)."""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", callback_data="auth_existing"))
-    builder.row(InlineKeyboardButton(text="🙋 Хочу зареєструватись", style="primary", callback_data="auth_new_lead"))
+    if registration_open:
+        builder.row(InlineKeyboardButton(text="🙋 Хочу зареєструватись", style="primary", callback_data="auth_new_lead"))
     return builder.as_markup()
 
 def get_start_registration_kb() -> InlineKeyboardMarkup:
@@ -300,3 +302,12 @@ def get_testers_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➖ Забрати", callback_data="testers_remove"),
         ]]
     )
+
+def get_registration_toggle_kb(registration_open: bool) -> InlineKeyboardMarkup:
+    """Клавіатура-тумблер для /registration: одна кнопка, що перемикає стан на протилежний."""
+    builder = InlineKeyboardBuilder()
+    if registration_open:
+        builder.button(text="🔴 Закрити реєстрацію", callback_data="registration_close", style="danger")
+    else:
+        builder.button(text="🟢 Відкрити реєстрацію", callback_data="registration_open", style="success")
+    return builder.as_markup()

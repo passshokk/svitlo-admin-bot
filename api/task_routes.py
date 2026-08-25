@@ -60,8 +60,17 @@ async def task_schooltoday_enroll(request: Request):
         doc_id = payload["doc_id"]
         doc = await db.db.collection('Svitlo').document(doc_id).get()
         svitlo_data = doc.to_dict()
-        pupil_payload = schooltoday.map_svitlo_to_pupil_payload(doc_id, svitlo_data)
-        await schooltoday.create_or_update_pupil(pupil_payload)
+
+        # enroll() робить усю послідовність: картка батька, картка учня,
+        # зв'язок між ними і лист-запрошення учневі. Ідемпотентна за externalID,
+        # тож повторна спроба Cloud Tasks не створить дубля.
+        result = await schooltoday.enroll(doc_id, svitlo_data)
+
+        # Зберігаємо ID карток, щоб наступні оновлення йшли без зайвого пошуку
+        await db.db.collection('Svitlo').document(doc_id).update({
+            "stPupilId": result["pupilId"],
+            "stParentId": result["parentId"],
+        })
         return Response(status_code=200)
     except Exception as e:
         logging.error(f"SchoolToday Enroll Task error: {e}")

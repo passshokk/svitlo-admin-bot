@@ -308,6 +308,7 @@ async def setup_owner_commands(bot) -> None:
     default_commands = await bot.get_my_commands()
     owner_commands = [
         BotCommand(command="testers", description="🧪 Тестувальники"),
+        BotCommand(command="registration", description="🎓 Реєстрація: відкрита/закрита"),
     ] + default_commands
     await bot.set_my_commands(owner_commands, scope=BotCommandScopeChat(chat_id=cfg.OWNER_ID))
 

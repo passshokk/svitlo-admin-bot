@@ -110,9 +110,9 @@ def _prompt(state) -> str:
 # ===============================================================
 
 reg_router = Router()
-# Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID
-reg_router.message.filter(IsTesterFilter(), (F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
-reg_router.callback_query.filter(IsTesterFilter(), (F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
+# Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID (дії кураторів з анкетами).
+reg_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
+reg_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
 
 # endregion =====================================================
 # region INTERCEPTORS
@@ -208,11 +208,12 @@ async def cmd_start(message: Message, state: FSMContext):
         )
     else:
         # Невідомий користувач (старий студент без ТГ або новий лід)
+        registration_open = await db.get_registration_open()
         await message.answer(
             "👋 Привіт! Я — офіційний бот SvitloSchool.\n"
             "<b>Обери свій статус, щоб ми могли продовжити:</b>",
             parse_mode="HTML",
-            reply_markup=kb.get_guest_start_menu()
+            reply_markup=kb.get_guest_start_menu(registration_open)
         )
 
 @reg_router.callback_query(F.data == "auth_existing")
@@ -227,6 +228,11 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
 
 @reg_router.callback_query(F.data == "auth_new_lead")
 async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
+    if not await db.get_registration_open():
+        await callback.answer("⚠️ Наразі реєстрація нових студентів закрита", show_alert=True)
+        await callback.message.edit_reply_markup(reply_markup=kb.get_guest_start_menu(registration_open=False))
+        return
+
     await callback.answer()
     await db.init_lead(callback.from_user.id, callback.from_user.username)
     await callback.message.edit_text(
@@ -842,7 +848,7 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         await state.update_data(scanner_msg_ids=[interlude_msg.message_id, scanner_msg.message_id])
         await state.set_state(Registration.uploading_docs)
 
-@reg_router.message(Command("testcam"))
+@reg_router.message(Command("testcam"), IsTesterFilter())
 async def cmd_test_idcheck(message: Message, state: FSMContext):
     await message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
 
