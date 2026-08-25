@@ -90,13 +90,13 @@ def get_edit_fields_kb() -> InlineKeyboardMarkup:
     builder.button(text="🌍 Країна", callback_data="edit_field:country")
     builder.button(text="📍 Місто", callback_data="edit_field:city")
     builder.button(text="🕊 ВПО", callback_data="edit_field:isDisplaced")
-    builder.button(text="🏥 Особливі потреби", callback_data="edit_field:hasHealthIssues")
+    builder.button(text="🏥 Потреби", callback_data="edit_field:hasHealthIssues")
     builder.button(text="🧑 Ім'я відп. особи", callback_data="edit_field:parentFirstName")
     builder.button(text="🧑 Прізвище відп. особи", callback_data="edit_field:parentLastName")
     builder.button(text="📧 Email відп. особи", callback_data="edit_field:parentEmail")
     builder.button(text="📱 Телефон відп. особи", callback_data="edit_field:parentPhone")
     builder.button(text="🔙 Назад", callback_data="edit_field:cancel")
-    builder.adjust(2, 2, 2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 1)
     return builder.as_markup()
 
 # --- rules & quiz ---
