@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, Header, HTTPException
 from aiogram import types
+from aiogram.types import ErrorEvent
 
 from core.bot_init import bot, dp, WEBHOOK_SECRET
 from bot.handlers import tg_router
@@ -26,6 +27,32 @@ logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 dp.update.outer_middleware(LoadDataMiddleware())
 dp.message.outer_middleware(TicketConflictNoticeMiddleware())
 dp.include_router(tg_router)
+
+
+@dp.errors()
+async def handle_unexpected_error(event: ErrorEvent) -> bool:
+    """Останній рубіж: якщо хендлер впав з необробленим виключенням (напр. тимчасовий збій Firestore),
+    юзер все одно отримує відповідь замість мовчазного зависання посеред розмови/анкети."""
+    exc = event.exception
+    logging.error("Unhandled update error", exc_info=(type(exc), exc, exc.__traceback__))
+
+    update = event.update
+    chat_id = None
+    if update.message:
+        chat_id = update.message.chat.id
+    elif update.callback_query and update.callback_query.message:
+        chat_id = update.callback_query.message.chat.id
+
+    if chat_id:
+        try:
+            await bot.send_message(
+                chat_id,
+                "⚠️ Сталася тимчасова технічна помилка. Спробуй, будь ласка, повторити останню дію — якщо не допоможе, напиши /help"
+            )
+        except Exception:
+            pass
+
+    return True
 
 
 @asynccontextmanager
@@ -66,7 +93,7 @@ async def telegram_webhook(
         await dp.feed_update(bot, update)
         
         return Response(status_code=200)
-    except Exception as e:
-        logging.error(f"Webhook processing error: {e}")
+    except Exception:
+        logging.exception("Webhook processing error")
         # Завжди повертаємо 200, щоб Telegram не спамив ретраями при 500-х помилках
         return Response(status_code=200)

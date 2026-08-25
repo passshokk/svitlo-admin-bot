@@ -77,7 +77,7 @@ def generate_svitlo_id() -> str:
     random_suffix = uuid.uuid4().hex[:8]
     return f"SV-{date_prefix}-{random_suffix}"
 
-async def init_lead(tg_id: int, username: str | None) -> str:
+async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
     """Створює новий документ ліда в Firebase.
 
     Ініціалізує всі колонки профілю студента (Flat Schema) із забезпеченням коректного відображення в Rowy.
@@ -87,11 +87,13 @@ async def init_lead(tg_id: int, username: str | None) -> str:
         username: Юзернейм у Telegram (якщо є).
 
     Returns:
-        str: Автогенерований ID створеного документа у Firestore.
+        tuple[str, bool]: (ID документа у Firestore, чи це новостворений лід — False, якщо юзер
+        просто повторно тиснув «Хочу зареєструватись», маючи вже існуючий документ). Прапорець
+        потрібен викликачу, щоб не заплановувати нагадування (send_reminder) повторно.
     """
     existing = await get_student_by_tg_id(tg_id)
     if existing:
-        return existing['id']
+        return existing['id'], False
         
     now = get_kyivtime_now()
     
@@ -156,7 +158,7 @@ async def init_lead(tg_id: int, username: str | None) -> str:
             # .create() атомарно створить документ АБО викине помилку AlreadyExists
             await doc_ref.create(payload)
             await _log_stage_event(custom_doc_id, "lead", now)
-            return custom_doc_id
+            return custom_doc_id, True
         except AlreadyExists:
             # У разі колізії цикл одразу генерує новий ID та повторює спробу
             continue

@@ -1,11 +1,15 @@
 # task_routes.py
 import logging
 from fastapi import APIRouter, Request, Response
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 import core.database as db
 import core.config as cfg
 import core.schooltoday as schooltoday
 from core.bot_init import bot
 from core.utils import export_to_notion
+from core.constants import REMINDER_1_MSG, REMINDER_2_MSG, LEAD_WELCOME_MSG
+from bot import keyboards as kb
+from bot.reg_funnel import render_registration_prompt
 
 tasks_router = APIRouter(prefix="/tasks")
 
@@ -74,6 +78,81 @@ async def task_schooltoday_enroll(request: Request):
         return Response(status_code=200)
     except Exception as e:
         logging.error(f"SchoolToday Enroll Task error: {e}")
+        return Response(status_code=500)
+
+@tasks_router.post("/send_reminder")
+async def task_send_reminder(request: Request):
+    """
+    Воркер Cloud Tasks: нагадування лідам, які натиснули "Хочу зареєструватись",
+    але не завершили заявку — через 24г і 48г. Планується в
+    bot/reg_funnel.py::process_auth_new_lead (лише для новостворених лідів).
+    """
+    try:
+        payload = await request.json()
+        doc_id = payload.get("doc_id")
+        step = payload.get("step")
+
+        if not doc_id or step not in (1, 2):
+            return Response(status_code=400)
+
+        doc_ref = db.db.collection('Svitlo').document(doc_id)
+        doc = await doc_ref.get()
+        if not doc.exists:
+            return Response(status_code=200)
+
+        data = doc.to_dict()
+
+        # Лід уже пройшов далі особистих даних (правила, скан документа, зарахування,
+        # блокування) — нагадування вже не на часі.
+        if data.get("stage") not in ("lead", "personal_data"):
+            return Response(status_code=200)
+
+        # Це нагадування вже надсилалось раніше — захист від Cloud Tasks retry.
+        if (data.get("followupStep") or 0) >= step:
+            return Response(status_code=200)
+
+        # Реєстрацію призупинено овнером — не турбуємо лідів новими нагадуваннями.
+        if not await db.get_registration_open():
+            return Response(status_code=200)
+
+        telegram_id = data.get("telegramId")
+        if not telegram_id:
+            return Response(status_code=200)
+
+        first_name = data.get("firstName") or ""
+        greeting = f"Привіт, {first_name}!" if first_name else "Привіт!"
+        text = (REMINDER_1_MSG if step == 1 else REMINDER_2_MSG).format(greeting=greeting)
+
+        try:
+            await bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+        except (TelegramForbiddenError, TelegramBadRequest) as e:
+            # Юзер заблокував бота чи інша непоправна помилка — більше не пробуємо,
+            # просто фіксуємо крок, щоб друге нагадування теж не намагалось надіслати.
+            logging.warning(f"Reminder send failed for {doc_id} (tg={telegram_id}): {e}")
+            await doc_ref.update({"followupStep": step})
+            return Response(status_code=200)
+
+        # Одразу після нагадування показуємо, де саме лід зупинився:
+        # якщо він уже в FSM анкети — точне питання, інакше — вітання з кнопкою старту.
+        fsm_doc = await db.db.collection("FSM_Sessions").document(str(telegram_id)).get()
+        fsm_data = fsm_doc.to_dict() if fsm_doc.exists else {}
+        fsm_state = fsm_data.get("state")
+
+        if fsm_state:
+            await render_registration_prompt(bot, telegram_id, fsm_state, fsm_data.get("data", {}))
+        else:
+            await bot.send_message(
+                chat_id=telegram_id,
+                text=LEAD_WELCOME_MSG,
+                parse_mode="HTML",
+                reply_markup=kb.get_start_registration_kb()
+            )
+
+        await doc_ref.update({"followupStep": step})
+        return Response(status_code=200)
+
+    except Exception as e:
+        logging.error(f"Send Reminder Task error: {e}")
         return Response(status_code=500)
 
 @tasks_router.post("/delete_messages")

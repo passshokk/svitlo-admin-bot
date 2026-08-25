@@ -234,10 +234,18 @@ async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
-    await db.init_lead(callback.from_user.id, callback.from_user.username)
+    doc_id, is_new = await db.init_lead(callback.from_user.id, callback.from_user.username)
+
+    if is_new:
+        # Нагадування тим, хто натиснув "Хочу зареєструватись", але не завершив заявку —
+        # 24г і 48г від цього моменту. Кожен таск сам перевіряє актуальність при спрацюванні
+        # (send_reminder у api/task_routes.py), тож нічого скасовувати тут не треба.
+        await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 1}, delay_seconds=24 * 3600)
+        await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 2}, delay_seconds=48 * 3600)
+
     await callback.message.edit_text(
-        LEAD_WELCOME_MSG, 
-        parse_mode="HTML", 
+        LEAD_WELCOME_MSG,
+        parse_mode="HTML",
         reply_markup=kb.get_start_registration_kb()
     )
 
