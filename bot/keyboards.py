@@ -70,6 +70,42 @@ def get_lead_source_kb() -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
+COUNTRY_OTHER = "🌍 Інша країна"
+COUNTRY_ROWS = [
+    ["Україна"],
+    ["Німеччина", "Польща"],
+    ["Чехія", "Великобританія"],
+    ["Іспанія", "Італія"],
+    ["Франція", "Нідерланди"],
+    ["Австрія", "Бельгія"],
+    ["Ірландія", "Швейцарія"],
+    ["Португалія", "Болгарія"],
+    ["Румунія", "Молдова"],
+    ["Словаччина", "Угорщина"],
+    ["Швеція", "Норвегія"],
+    ["Данія", "Фінляндія"],
+    ["Литва", "Латвія"],
+    ["Естонія", "Грузія"],
+    ["США", "Канада"],
+    ["Ізраїль", "Туреччина"],
+]
+# Плоский набір — хендлер по ньому відрізняє натиснуту кнопку від вільного
+# тексту (див. _normalise_country у reg_funnel.py).
+COUNTRIES = {name for row in COUNTRY_ROWS for name in row}
+
+def get_country_kb() -> ReplyKeyboardMarkup:
+    """Клавіатура вибору країни проживання.
+
+    «Інша країна» стоїть ПЕРШИМ рядком, а не останнім: список довгий і
+    прокручується, а той, чиєї країни в ньому немає, не обов'язково
+    здогадається догортати до кінця — запасний вихід має бути видно
+    одразу, ще до самого списку.
+    """
+    buttons = [[KeyboardButton(text=COUNTRY_OTHER)]]
+    buttons += [[KeyboardButton(text=name) for name in row] for row in COUNTRY_ROWS]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+
 def get_boolean_kb(yes_text="Так", no_text="Ні") -> ReplyKeyboardMarkup:
     buttons = [[KeyboardButton(text=yes_text), KeyboardButton(text=no_text)]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)

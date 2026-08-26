@@ -76,30 +76,61 @@ BLOCKED_COUNTRY_PATTERNS = {
     "russia", "rus", "ru", "rusia", "rossiya", "ruzzia", "rusnya", "русня"
 }
 
-def is_russian_country_input(text: str) -> bool:
+def match_russian_country_input(text: str) -> dict | None:
+    """Який САМЕ патерн спрацював, а не лише факт спрацювання.
+
+    Повертає деталі збігу (або None), щоб причина блокування в CRM могла
+    назвати конкретне правило й показати проміжні форми тексту. Без цього
+    в картці лишалось голе «росія у полі країна», і чому воно спрацювало
+    на неочевидному вводі (гомогліфи, підрядок) — не з'ясувати.
+    """
     if not text:
-        return False
-        
+        return None
+
     # 1. Приведення до нижнього регістру та видалення пробілів/спецсимволів
     clean_text = re.sub(r'[^a-zA-Zа-яА-ЯіІїЇєЄґҐ]', '', text.lower())
-    
+
     # 2. Мапінг схожих латинських літер на кирилицю (захист від p-о-c-c-и-я)
     homoglyphs = str.maketrans({'p': 'р', 'o': 'о', 'c': 'с', 'a': 'а', 'e': 'е', 'x': 'х', 'y': 'у'})
     normalized_text = clean_text.translate(homoglyphs)
 
     # 3. Перевірка на прямий збіг або підрядок
     for pattern in BLOCKED_COUNTRY_PATTERNS:
-        if pattern in clean_text or pattern in normalized_text:
-            return True
-            
-    return False
+        direct = pattern in clean_text
+        if direct or pattern in normalized_text:
+            return {
+                "pattern": pattern,
+                # Пряме входження чи лише після підміни гомогліфів — це різні
+                # за силою сигнали: друге майже завжди означає навмисний обхід.
+                "via": "пряме входження" if direct else "збіг лише після нормалізації гомогліфів",
+                "clean": clean_text,
+                "normalized": normalized_text,
+                "exact": pattern == clean_text or pattern == normalized_text,
+            }
+
+    return None
+
+
+def is_russian_country_input(text: str) -> bool:
+    return match_russian_country_input(text) is not None
+
+
+# Російські мобільні (+79) та міські (+73, +74, +78) діапазони; "89" — той самий
+# мобільний діапазон у внутрішньому форматі набору (8 замість +7).
+RU_PHONE_PREFIXES = ('+79', '+73', '+74', '+78', '89')
+
+
+def match_russian_phone_prefix(phone: str) -> str | None:
+    """Префікс, на якому спрацювало блокування (або None)."""
+    clean_phone = re.sub(r'[^\d+]', '', phone)
+    for prefix in RU_PHONE_PREFIXES:
+        if clean_phone.startswith(prefix):
+            return prefix
+    return None
+
 
 def is_russian_phone_number(phone: str) -> bool:
-    clean_phone = re.sub(r'[^\d+]', '', phone)
-    # Блокуємо всі російські мобільні (+79) та міські (+73, +74, +78) діапазони
-    if clean_phone.startswith(('+79', '+73', '+74', '+78', '89')):
-        return True
-    return False
+    return match_russian_phone_prefix(phone) is not None
 
 
 # Українські мобільні коди без провідного нуля — для відновлення номерів,

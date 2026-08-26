@@ -36,7 +36,7 @@ EDIT_FIELD_PROMPTS = {
     "lastName": ("Введи нове <b>прізвище</b> (англійською):", None),
     "birthDate": ("Введи нову <b>дату народження</b> (ДД.ММ.РРРР):", None),
     "email": ("Введи новий <b>Email</b>:", None),
-    "country": ("Введи нову <b>країну</b> проживання:", None),
+    "country": ("Обери нову <b>країну</b> проживання:", kb.get_country_kb),
     "city": ("Введи нове <b>місто</b> проживання:", None),
     "isDisplaced": ("<b>Чи довелося тобі змінити місце проживання через війну?</b>", kb.get_boolean_kb),
     "displacedRegion": ("Введи нову <b>область України</b>, з якої ти переїхав(-ла):", None),
@@ -81,7 +81,7 @@ REGISTRATION_PROMPTS = {
         "Щоб поділитись <b>номером телефону</b>, натисни кнопку «Поділитись номером» нижче ↘️",
         kb.get_number_for_registration_kb,
     ),
-    Registration.entering_country.state: ("<b>У якій країні</b> ти зараз проживаєш?", None),
+    Registration.entering_country.state: ("<b>У якій країні</b> ти зараз проживаєш?", kb.get_country_kb),
     Registration.entering_city.state: ("Вкажи назву <b>міста чи села</b>, де ти зараз мешкаєш:", None),
     Registration.entering_displaced_bool.state: (
         "<b>Чи довелося тобі змінити місце проживання через війну? 🕊</b>\n\n"
@@ -428,16 +428,25 @@ async def process_phone_contact(message: Message, state: FSMContext):
         await ut.step_answer(message, "⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
         return
 
-    if ut.is_russian_phone_number(phone):
-        await db.update_crm_stage(student['id'], "blocked")
+    prefix = ut.match_russian_phone_prefix(phone)
+    if prefix:
+        # Сирий номер із контакту йде поруч із нормалізованим: normalize_phone
+        # відновлює загублені префікси, тож саме сира форма показує, що
+        # Telegram передав насправді.
+        await db.update_crm_stage(student['id'], "blocked", reason="\n".join([
+            f"Правило: номер телефону починається з «{prefix}» (російський діапазон)",
+            f"Номер після нормалізації: {phone}",
+            f"Номер як надійшов від Telegram: {message.contact.phone_number}",
+            _tg_trace(message),
+        ]))
         await db.clear_user_fsm(message.from_user.id)
         await ut.step_answer(message, "⚠️ Доступ до реєстрації в Svitlo School обмежено")
         return
     
     await state.update_data(phone=phone)
     await state.set_state(Registration.entering_country)
-    
-    await ut.step_answer(message, _prompt(Registration.entering_country), parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+
+    await ut.step_answer(message, _prompt(Registration.entering_country), parse_mode="HTML", reply_markup=kb.get_country_kb())
 
 # Блокування ручного введення
 @reg_router.message(Registration.entering_phone, F.text)
@@ -448,28 +457,100 @@ async def process_phone_text_blocked(message: Message):
         reply_markup=kb.get_number_for_registration_kb()
     )
 
+def _tg_trace(message: Message) -> str:
+    """Хто саме спрацював на правило — спільний хвіст усіх автопричин блокування.
+
+    У самій картці CRM ці дані вже є, але причина має читатись автономно:
+    вона переживає і зміну профілю, і розблокування (лишається в
+    AdminAuditLog), тож прив'язка до конкретного Telegram-акаунта й моменту
+    має лежати всередині неї.
+    """
+    user = message.from_user
+    handle = f" @{user.username}" if user.username else " (без юзернейму)"
+    return "\n".join([
+        f"Telegram: id={user.id}{handle}",
+        f"Ім'я в Telegram: {user.full_name}",
+        f"Мова клієнта: {user.language_code or 'не передано'}",
+        f"Час події (UTC): {message.date:%Y-%m-%d %H:%M:%S}",
+    ])
+
+
+def _russian_input_reason(field: str, raw: str, match: dict, message: Message) -> str:
+    """Причина блокування за російським вводом у текстовому полі."""
+    lines = [
+        f"Правило: спрацював стоп-патерн «{match['pattern']}» у полі «{field}»",
+        f"Тип збігу: {match['via']}" + ("" if match["exact"] else ", як підрядок"),
+        f"Введений текст: {raw!r}",
+    ]
+    # Проміжні форми показуємо лише коли вони відрізняються від сирого вводу —
+    # інакше це три однакові рядки, які нічого не додають.
+    if match["clean"] != raw.lower():
+        lines.append(f"Після очищення від не-літер: {match['clean']!r}")
+    if match["normalized"] != match["clean"]:
+        lines.append(f"Після підміни гомогліфів: {match['normalized']!r}")
+    lines.append(_tg_trace(message))
+    return "\n".join(lines)
+
+
+def _normalise_country(raw: str) -> str:
+    """Назва країни з вільного вводу або з нашої ж клавіатури.
+
+    Кнопки беремо як є: .title() зіпсував би абревіатуру ("США" -> "Сша"),
+    а власний список і так уже в називному відмінку. .title() лишається
+    тільки для вільного тексту, як було раніше.
+    """
+    value = raw.strip()
+    return value if value in kb.COUNTRIES else value.title()
+
+
 # КРАЇНА -> МІСТО
 @reg_router.message(Registration.entering_country, F.text)
 async def process_country(message: Message, state: FSMContext):
-    country = message.text.strip().title()
     student = student_ctx.get()
     if not student:
         await ut.step_answer(message, "⚠️ Помилка сесії: Профіль не знайдено. Надішли /start")
         return
 
+    raw = message.text.strip()
+
+    # «Інша країна» — не значення, а перемикач у вільне введення: ховаємо
+    # клавіатуру й лишаємось у ТОМУ САМОМУ стані, тож наступне повідомлення
+    # прийде знову сюди й піде звичайною гілкою валідації нижче. Окремий
+    # стан заради цього не потрібен — кнопка з емодзі не може збігтися
+    # з реальною назвою країни (UKR_REGEX емодзі не пропускає).
+    if raw == kb.COUNTRY_OTHER:
+        await ut.step_answer(
+            message,
+            "Впиши <b>назву країни</b> українською мовою:",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    country = _normalise_country(raw)
+
     if not re.match(UKR_REGEX, country):
         await ut.step_answer(message, "⚠️ Будь ласка, вкажи країну українською мовою (наприклад: Україна, Польща)")
         return
 
-    if ut.is_russian_country_input(country):
-        await db.update_crm_stage(student['id'], "blocked")
+    match = ut.match_russian_country_input(country)
+    if match:
+        await db.update_crm_stage(
+            student['id'], "blocked",
+            reason=_russian_input_reason("країна", raw, match, message),
+        )
         await db.clear_user_fsm(message.from_user.id)
         await ut.step_answer(message, "⚠️ Доступ до реєстрації в Svitlo School обмежено")
         return
 
     await state.update_data(country=country)
     await state.set_state(Registration.entering_city)
-    await ut.step_answer(message, "Вкажи назву <b>міста чи села</b>, де ти зараз мешкаєш:")
+    # Клавіатуру країн прибираємо явно: one_time_keyboard лише згортає її,
+    # а місто — вільний текст, і залишок країн під полем вводу збивав би з пантелику.
+    await ut.step_answer(
+        message,
+        "Вкажи назву <b>міста чи села</b>, де ти зараз мешкаєш:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
 
 # МІСТО -> ВПО
 @reg_router.message(Registration.entering_city, F.text)
@@ -484,8 +565,12 @@ async def process_city(message: Message, state: FSMContext):
         await ut.step_answer(message, "⚠️ Будь ласка, вкажи місто чи село українською мовою")
         return
 
-    if ut.is_russian_country_input(city):
-        await db.update_crm_stage(student['id'], "blocked")
+    match = ut.match_russian_country_input(city)
+    if match:
+        await db.update_crm_stage(
+            student['id'], "blocked",
+            reason=_russian_input_reason("місто", message.text.strip(), match, message),
+        )
         await db.clear_user_fsm(message.from_user.id)
         await ut.step_answer(message, "⚠️ Доступ до реєстрації в Svitlo School обмежено")
         return
@@ -753,7 +838,17 @@ async def process_field_edit(message: Message, state: FSMContext):
         await state.update_data(email=val)
 
     elif field == "country":
-        val = message.text.strip().title()
+        # Та сама пара «клавіатура + запасне вільне введення», що і в
+        # process_country: інакше редагування лишалось би єдиним місцем,
+        # де країну досі вписують руками — і брудні значення заходили б
+        # у базу саме через нього.
+        if message.text.strip() == kb.COUNTRY_OTHER:
+            return await ut.step_answer(
+                message,
+                "Впиши <b>назву країни</b> українською мовою:",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+        val = _normalise_country(message.text)
         if not re.match(UKR_REGEX, val):
             return await ut.step_answer(message, "⚠️ Будь ласка, вкажи країну українською мовою (наприклад: Україна, Польща)")
         if ut.is_russian_country_input(val):
@@ -837,6 +932,18 @@ async def process_field_edit(message: Message, state: FSMContext):
 # region INTERLUDE #1
 # ===============================================================
 
+async def _safe_edit_text(message: Message, text: str, **kwargs) -> Message | None:
+    """edit_text з ігноруванням "message is not modified": на квіз-кнопках
+    подвійний тап (або повторна доставка callback-апдейту від Telegram) легко
+    призводить до двох паралельних викликів, які редагують повідомлення в
+    той самий контент — другий з них Telegram відхиляє саме цією помилкою"""
+    try:
+        return await message.edit_text(text, **kwargs)
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            return None
+        raise
+
 async def _finalize_personal_data(message: Message, state: FSMContext):
     """Допоміжна функція: зберігає зібраний FSM-словник у Firestore та переводить на етап правил"""
     data = await state.get_data()
@@ -856,7 +963,8 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 
     await state.set_state(Registration.passing_rules)
 
-    await message.edit_text(
+    await _safe_edit_text(
+        message,
         LEAD_INTERLUDE_1_MSG,
         reply_markup=kb.get_rules_start_kb()
     )
@@ -869,7 +977,8 @@ async def _finalize_personal_data(message: Message, state: FSMContext):
 async def process_rules(callback: CallbackQuery, state: FSMContext):
     await state.update_data(quizStep=0)
     await callback.answer()
-    await callback.message.edit_text(
+    await _safe_edit_text(
+            callback.message,
             RULES_MSG,
             reply_markup=kb.get_quiz_start_kb(),
             disable_web_page_preview=True
@@ -896,12 +1005,13 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
             # Скидаємо прогрес
             await state.update_data(quizStep=0)
             # Повертаємо повідомлення з правилами та кнопкою "Take the quiz"
-            await callback.message.edit_text(
+            await _safe_edit_text(
+                callback.message,
                 RULES_MSG,
                 reply_markup=kb.get_quiz_start_kb(),
                 disable_web_page_preview=True
             )
-            return 
+            return
             
     # 2. Логіка при правильній відповіді або натисканні "quiz_start"
     if step < len(QUIZ_DATA):
@@ -909,7 +1019,8 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         text_to_send = f"<b>📚 Check Your Rules Knowledge 📚</b>\n\n{question['q']}"
 
         await callback.answer()
-        await callback.message.edit_text(
+        await _safe_edit_text(
+            callback.message,
             text_to_send,
             reply_markup=kb.get_quiz_kb(question["options"])
         )
@@ -926,10 +1037,11 @@ async def process_quiz(callback: CallbackQuery, state: FSMContext):
         if student:
             await db.update_crm_stage(student['id'], "uploading_docs")
 
-        interlude_msg = await callback.message.edit_text(LEAD_INTERLUDE_2_MSG.format(name=first_name))
+        await _safe_edit_text(callback.message, LEAD_INTERLUDE_2_MSG.format(name=first_name))
         scanner_msg = await callback.message.answer(SCANNER_MSG, reply_markup=kb.get_scanner_webapp_kb())
-        # Зберігаємо ID цих двох повідомлень, щоб прибрати їх з чату після успішного сканування
-        await state.update_data(scanner_msg_ids=[interlude_msg.message_id, scanner_msg.message_id])
+        # edit_text не міняє message_id (навіть якщо _safe_edit_text проковтнула
+        # "not modified"), тож ID беремо з callback.message, а не з результату edit_text
+        await state.update_data(scanner_msg_ids=[callback.message.message_id, scanner_msg.message_id])
         await state.set_state(Registration.uploading_docs)
 
 @reg_router.message(Command("testcam"), IsTesterFilter())
@@ -1026,11 +1138,25 @@ async def admin_block_lead(callback: CallbackQuery):
     user_id = data.get('telegramId')
 
     # 2. Переводимо stage в blocked у Flat Schema
-    await db.update_crm_stage(doc_id, "blocked")
+    # Текстову причину тут вписати нема де — це один клік по інлайн-кнопці
+    # в Telegram, без поля вводу. Тому фіксуємо все, що доступно автоматично:
+    # хто натиснув, коли, і на якій стадії була заявка на той момент (остання
+    # деталь важлива — «відхилив на admin_review» і «відхилив на lead» це
+    # різні за змістом рішення). Розгорнуте пояснення можна дати в панелі:
+    # там при блокуванні є поле нотатки.
+    reviewer = callback.from_user
+    reviewer_handle = f" @{reviewer.username}" if reviewer.username else ""
+    await db.update_crm_stage(doc_id, "blocked", reason="\n".join([
+        "Правило: ручне відхилення куратором через інлайн-кнопку в Telegram",
+        f"Куратор: {reviewer.full_name}{reviewer_handle} (id={reviewer.id})",
+        f"Стадія на момент відхилення: {data.get('stage') or 'не визначено'}",
+        f"Час події (UTC): {callback.message.date:%Y-%m-%d %H:%M:%S}",
+        "Пояснення не вказано: кнопка в Telegram не має поля вводу. "
+        "Щоб зафіксувати причину текстом, блокуй із панелі.",
+    ]))
     await db.clear_user_fsm(user_id)
 
     # 3. Оновлюємо інтерфейс куратора
-    reviewer_name = callback.from_user.full_name
     await callback.message.edit_text(
         f"<b>⛔️ ЗАЯКУ ВІДХИЛЕНО</b>\n"
         f"Куратор: {reviewer_name}\n\n"

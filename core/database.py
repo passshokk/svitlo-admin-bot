@@ -209,16 +209,27 @@ async def _log_stage_event(doc_id: str, stage: str, at):
         "at": at
     })
 
-async def update_crm_stage(doc_id: str, next_stage: str):
+async def update_crm_stage(doc_id: str, next_stage: str, reason: str = ""):
     """
     Оновлює в `Svitlo` поточну стадію та timestamp останньої активності юзера,
     і логує сам перехід у `StageEvents`.
+
+    `reason` має сенс лише для `blocked`: раніше автоматичні блокування
+    (рос. номер/країна/місто, GeoIP, таймзона, рос. маркери в документі)
+    писали в базу сам лише stage="blocked", тож в адмінці неможливо було
+    з'ясувати, за що саме людину заблокувало. Тепер причина лягає в поле
+    `blockReason`, яке панель показує у картці профілю.
     """
     now = get_kyivtime_now()
-    await db.collection('Svitlo').document(doc_id).update({
+    payload = {
         "stageUpdatedAt": now,
         "stage": next_stage
-    })
+    }
+    if next_stage == "blocked" and reason:
+        payload["blockReason"] = reason
+        payload["blockedBy"] = "Бот (автоматична перевірка)"
+        payload["blockedAt"] = now
+    await db.collection('Svitlo').document(doc_id).update(payload)
     await _log_stage_event(doc_id, next_stage, now)
 
 async def increment_rules_mistake(doc_id: str):

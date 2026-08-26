@@ -77,19 +77,54 @@ def validate_tg_init_data(init_data: str, token: str) -> bool:
     except Exception:
         return False
 
-async def is_russian_ip(ip: str) -> bool:
-    """Перевіряє через GeoIP API належність IP-адреси до РФ."""
+# Раніше запитували саме лише countryCode і одразу зводили відповідь до bool.
+# Решта полів приходить тим самим запитом безкоштовно, а в причині блокування
+# вони — головне: без ISP/AS і ознак proxy/hosting неможливо відрізнити
+# людину з російського домашнього провайдера від когось за VPN-виходом.
+GEOIP_FIELDS = "status,message,countryCode,country,regionName,city,isp,org,as,proxy,hosting,mobile,query"
+
+
+async def geoip_lookup(ip: str) -> dict:
+    """GeoIP-довідка по IP. Порожній dict, якщо перевірку не виконано.
+
+    Свідомо НЕ кидає: GeoIP тут — допоміжний сигнал, і його недоступність
+    не повинна валити скан документа. Ключ "unavailable" відрізняє
+    «перевірили й це не РФ» від «перевірити не вдалося» — раніше обидва
+    випадки давали однаковий False.
+    """
     if ip in ("127.0.0.1", "localhost", "unknown"):
-        return False
+        return {"unavailable": f"локальна або невідома адреса ({ip})"}
     try:
         async with httpx.AsyncClient(timeout=1.5) as client:
-            resp = await client.get(f"http://ip-api.com/json/{ip}?fields=countryCode")
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("countryCode") == "RU"
+            resp = await client.get(f"http://ip-api.com/json/{ip}?fields={GEOIP_FIELDS}")
+            if resp.status_code != 200:
+                return {"unavailable": f"ip-api.com HTTP {resp.status_code}"}
+            data = resp.json()
+            if data.get("status") != "success":
+                return {"unavailable": f"ip-api.com: {data.get('message') or 'status != success'}"}
+            return data
     except Exception as e:
         logging.warning(f"GeoIP check failed for {ip}: {e}")
-    return False
+        return {"unavailable": f"{type(e).__name__}: {e}"}
+
+
+def format_geoip(geo: dict) -> str:
+    """GeoIP-дані рядками для причини блокування."""
+    if geo.get("unavailable"):
+        return f"GeoIP: перевірку не виконано ({geo['unavailable']})"
+
+    location = " / ".join(p for p in (geo.get("country"), geo.get("regionName"), geo.get("city")) if p)
+    lines = [
+        f"GeoIP: {geo.get('countryCode') or '??'} — {location or 'локацію не визначено'}",
+        f"Провайдер: {geo.get('isp') or '—'} · {geo.get('as') or '—'}",
+    ]
+    if geo.get("org") and geo.get("org") != geo.get("isp"):
+        lines.append(f"Організація: {geo['org']}")
+    # Ці три прапорці — те, заради чого варто дивитись у причину руками:
+    # proxy/hosting майже завжди означає VPN або дата-центр, а не домашню мережу.
+    flags = [name for name, key in (("proxy/VPN", "proxy"), ("хостинг/дата-центр", "hosting"), ("мобільна мережа", "mobile")) if geo.get(key)]
+    lines.append(f"Ознаки: {', '.join(flags) if flags else 'не виявлено'}")
+    return "\n".join(lines)
 
 @webapp_router.get("/webapp/camera", response_class=HTMLResponse)
 async def get_scanner_ui():
@@ -123,15 +158,42 @@ async def process_vision(
     x_forwarded_for = request.headers.get("X-Forwarded-For")
     client_ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else (request.client.host if request.client else "unknown")
 
+    # Спільний «слід запиту» для причини блокування — однаковий для всіх трьох
+    # перевірок нижче. Повний X-Forwarded-For, а не лише перший хоп: решта
+    # ланцюга показує, чи йшов запит через проміжні проксі. User-Agent —
+    # єдиний доступний тут відбиток клієнта.
+    user_agent = request.headers.get("User-Agent") or "—"
+    tg_username = user_data.get("username")
+    request_trace = "\n".join([
+        f"Telegram: id={user_id}" + (f" @{tg_username}" if tg_username else " (без юзернейму)"),
+        f"IP: {client_ip}",
+        f"X-Forwarded-For: {x_forwarded_for or '—'}",
+        f"Таймзона пристрою: {timezone or 'не передано'}",
+        f"User-Agent: {user_agent}",
+    ])
+
     # 3. Перевірка 1: GeoIP
-    if await is_russian_ip(client_ip):
-        await db.update_crm_stage(doc_id, "blocked")
+    geo = await geoip_lookup(client_ip)
+    if geo.get("countryCode") == "RU":
+        await db.update_crm_stage(doc_id, "blocked", reason="\n".join([
+            "Правило: GeoIP-перевірка IP-адреси — країна RU",
+            format_geoip(geo),
+            request_trace,
+        ]))
         await db.clear_user_fsm(user_id)
         return {"success": False, "error": "Доступ обмежено за регіональними параметрами мережі"}
-    
+
     # 4. Перевірка 2: Таймзона пристрою
     if timezone in BLOCKED_TIMEZONES:
-        await db.update_crm_stage(doc_id, "blocked")
+        # GeoIP тут уже пораховано вище — докладаємо його ЗАВЖДИ, навіть коли
+        # він не збігається з таймзоною. Саме розбіжність і цікава: таймзона
+        # Europe/Moscow при польському IP читається інакше, ніж коли обидва
+        # сигнали вказують в один бік.
+        await db.update_crm_stage(doc_id, "blocked", reason="\n".join([
+            f"Правило: таймзона пристрою «{timezone}» у списку заблокованих",
+            format_geoip(geo),
+            request_trace,
+        ]))
         await db.clear_user_fsm(user_id)
         return {"success": False, "error": "Регіональні параметри пристрою не підтримуються"}
     
@@ -175,7 +237,26 @@ async def process_vision(
 
         # Якщо виявлено російські маркери
         if result.get("has_russian_markers"):
-            await db.update_crm_stage(doc_id, "blocked")
+            # Кладемо ВСЮ відповідь моделі, а не самий doc_type. Це рішення
+            # ухвалює ШІ, тож при апеляції треба бачити, на чому саме він його
+            # ухвалив: низька confidence разом з is_ua_document=true — привід
+            # передивитись руками, а не просто підтвердити блок. Зчитані з
+            # документа ПІБ/ДН лишаємо тут же — за ними видно, чи модель
+            # взагалі дивилась на той документ, який людина надіслала.
+            confidence = result.get("confidence")
+            doc_read = " · ".join(
+                str(v) for v in (result.get("doc_first_name"), result.get("doc_last_name"), result.get("doc_dob")) if v
+            )
+            await db.update_crm_stage(doc_id, "blocked", reason="\n".join([
+                "Правило: Gemini Vision виставив has_russian_markers=true для завантаженого документа",
+                f"Тип документа за версією моделі: {result.get('doc_type') or 'не визначено'}",
+                f"Український документ за версією моделі: {result.get('is_ua_document')}",
+                f"Впевненість моделі: {round(float(confidence) * 100)}%" if isinstance(confidence, (int, float)) else "Впевненість моделі: не повернуто",
+                f"Зчитано з документа: {doc_read or 'нічого не зчитано'}",
+                f"Файл: {mime_type}, {len(image_bytes) // 1024} КБ",
+                format_geoip(geo),
+                request_trace,
+            ]))
             await db.clear_user_fsm(user_id)
             return {"success": False, "error": "Документ не пройшов перевірку безпеки"}
 
