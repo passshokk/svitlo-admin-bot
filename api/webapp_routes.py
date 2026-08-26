@@ -24,6 +24,7 @@ from core.bot_init import bot
 from core import config as cfg
 from core.constants import APPLICATION_RECEIVED_MSG
 from core.utils import format_ai_info_block
+from api.task_routes import schedule_admin_review_digest
 
 # Приховує конкретний спам-варнінг Vertex AI SDK про rest_asyncio fallback на grpc
 class _SuppressVertexAsyncRestWarning(logging.Filter):
@@ -290,6 +291,10 @@ async def process_vision(
         })
         await db.update_crm_stage(doc_id, "admin_review")
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
+        # Розгляд заявок — у Solar Panel, тож єдиний проактивний сигнал
+        # куратору про нову заявку тепер це відкладений дайджест, а не
+        # миттєве повідомлення з кнопками (те нижче — на видалення).
+        await schedule_admin_review_digest()
 
         # Прибираємо технічні повідомлення сканера (interlude2 + інструкція), лишаючи чат чистим
         try:
