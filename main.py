@@ -12,6 +12,7 @@ from bot.middleware import LoadDataMiddleware, TicketConflictNoticeMiddleware
 from api.webapp_routes import webapp_router
 from core import utils as ut
 from core import schooltoday
+from core.error_reporting import report_error
 
 # === БЛОК ЛОГУВАННЯ ===
 # Залишаємо INFO як базовий рівень для кастомних логів
@@ -36,6 +37,7 @@ async def handle_unexpected_error(event: ErrorEvent) -> bool:
     юзер все одно отримує відповідь замість мовчазного зависання посеред розмови/анкети."""
     exc = event.exception
     logging.error("Unhandled update error", exc_info=(type(exc), exc, exc.__traceback__))
+    await report_error(exc, context="Telegram update handler")
 
     update = event.update
     chat = None
@@ -96,7 +98,8 @@ async def telegram_webhook(
         await dp.feed_update(bot, update)
         
         return Response(status_code=200)
-    except Exception:
+    except Exception as exc:
         logging.exception("Webhook processing error")
+        await report_error(exc, context="Webhook /  (malformed update)")
         # Завжди повертаємо 200, щоб Telegram не спамив ретраями при 500-х помилках
         return Response(status_code=200)

@@ -6,6 +6,7 @@ import core.database as db
 import core.config as cfg
 import core.schooltoday as schooltoday
 from core.bot_init import bot
+from core.error_reporting import report_error
 from core.utils import export_to_notion
 from core.constants import REMINDER_1_MSG, REMINDER_2_MSG, LEAD_WELCOME_MSG
 from bot import keyboards as kb
@@ -43,6 +44,7 @@ async def task_sla_check(request: Request):
 
     except Exception as e:
         logging.error(f"SLA Task error: {e}")
+        await report_error(e, context="POST /tasks/sla_check")
         # Повертаємо 500, щоб Cloud Tasks спробував виконати запит повторно (Retry Policy)
         return Response(status_code=500)
 
@@ -54,6 +56,7 @@ async def task_export_notion(request: Request):
         return Response(status_code=200)
     except Exception as e:
         logging.error(f"Notion Export Task error: {e}")
+        await report_error(e, context="POST /tasks/export_notion")
         return Response(status_code=500)
     
 async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
@@ -86,7 +89,7 @@ async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
             f"<b>Причина:</b> {reason}\n\n{tail}",
         )
     except Exception as exc:  # сповіщення не має ламати воркер
-        logging.error("Не вдалося повідомити кураторів про %s: %s", doc_id, exc)
+        logging.error("Не вдалося повідомити про провал зарахування %s: %s", doc_id, exc)
 
 
 @tasks_router.post("/schooltoday_enroll")
@@ -204,6 +207,7 @@ async def task_send_reminder(request: Request):
 
     except Exception as e:
         logging.error(f"Send Reminder Task error: {e}")
+        await report_error(e, context="POST /tasks/send_reminder")
         return Response(status_code=500)
 
 @tasks_router.post("/delete_messages")
