@@ -1159,7 +1159,7 @@ async def admin_block_lead(callback: CallbackQuery):
     # 3. Оновлюємо інтерфейс куратора
     await callback.message.edit_text(
         f"<b>⛔️ ЗАЯКУ ВІДХИЛЕНО</b>\n"
-        f"Куратор: {reviewer_name}\n\n"
+        f"Куратор: {reviewer.full_name}\n\n"
         f"{callback.message.html_text}",
         reply_markup=None
     )
