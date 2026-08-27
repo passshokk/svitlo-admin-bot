@@ -10,6 +10,7 @@ from bot.handlers import tg_router
 from api.task_routes import tasks_router
 from bot.middleware import LoadDataMiddleware, TicketConflictNoticeMiddleware
 from api.webapp_routes import webapp_router
+from api.admin_routes import admin_router
 from core import utils as ut
 from core import schooltoday
 from core.error_reporting import report_error
@@ -75,6 +76,8 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(tasks_router)
 # Монтуємо роутер WebApp (камера та ШІ)
 app.include_router(webapp_router)
+# Монтуємо роутер ручних операцій синку для owner-панелі (/admin/sync/*)
+app.include_router(admin_router)
 
 # Головний роут для вебхуків Telegram
 @app.post("/")
