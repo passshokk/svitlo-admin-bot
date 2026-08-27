@@ -2,6 +2,7 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
 from aiogram.filters import Command, StateFilter
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 import re
@@ -348,11 +349,38 @@ async def _resume_paused_registration(bot, user_id: int) -> None:
     # могла "поховати" питання анкети далеко вгорі чату.
     await render_registration_prompt(bot, user_id, return_state, data)
 
+async def _schedule_ticket_thread_deletion(bot, thread_id: int | None, ticket_id, curator_name: str) -> bool:
+    """Попереджає в гілці закритого тікета, що вона скоро зникне, і ставить фонову задачу
+    на видалення через cfg.TICKET_THREAD_DELETE_DELAY_SECONDS — так з поля зору
+    ускладнюють картину лише реально відкриті запити, але куратор встигає ще раз глянути.
+    Легасі-тікети без власної гілки (thread_id=None) пропускаються. Повертає True, якщо
+    видалення заплановано."""
+    if not thread_id:
+        return False
+
+    minutes = cfg.TICKET_THREAD_DELETE_DELAY_SECONDS // 60
+    try:
+        await bot.send_message(
+            chat_id=cfg.CURATOR_GROUP_ID,
+            message_thread_id=thread_id,
+            text=f"<b>✅ Дякуємо за опрацювання, {curator_name}!</b>\nЦя гілка автоматично видалиться через {minutes} хв.",
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest as e:
+        logging.error(f"Не вдалося попередити про видалення гілки тікета #{int(ticket_id):05}: {e}")
+
+    await enqueue_task(
+        endpoint="/tasks/delete_ticket_thread",
+        payload={"thread_id": thread_id, "ticket_id": str(ticket_id)},
+        delay_seconds=cfg.TICKET_THREAD_DELETE_DELAY_SECONDS
+    )
+    return True
+
 @public_router.callback_query(F.data.startswith("close_"))
 async def inline_close_ticket(callback: CallbackQuery):
     ticket_id = callback.data.split("_")[1]
     ticket_data = await db.get_ticket(ticket_id)
-    
+
     if not ticket_data or ticket_data['status'] == 'closed':
         await callback.answer("⚠️ Цей тікет вже закритий!", show_alert=True)
         return
@@ -360,13 +388,13 @@ async def inline_close_ticket(callback: CallbackQuery):
     # 🛡 ЩИТ: Перевіряємо, чи клікає ТОЙ САМИЙ куратор
     assigned_curator = ticket_data.get('curator_name')
     chat_member = await callback.bot.get_chat_member(
-        chat_id=callback.message.chat.id, 
+        chat_id=callback.message.chat.id,
         user_id=callback.from_user.id
     )
     title = getattr(chat_member, 'custom_title', 'Curator Oleg')
     tag = getattr(chat_member, 'tag', 'Curator Oleg')
     curator_title = title or tag
-    
+
     current_clicker_name = f"{curator_title}" if curator_title else callback.from_user.full_name
 
     if assigned_curator != current_clicker_name:
@@ -375,13 +403,19 @@ async def inline_close_ticket(callback: CallbackQuery):
     # ================================================
 
     await db.close_ticket(ticket_id)
-    old_html = callback.message.html_text
-    new_html = old_html.replace("Новий тікет", "✅ <b>ЗАКРИТИЙ тікет</b>")
-    await callback.message.edit_text(
-        text=new_html,
-        reply_markup=kb.get_closed_ticket_kb(assigned_curator),
-        link_preview_options=LinkPreviewOptions(is_disabled=True)
-    )
+    scheduled = await _schedule_ticket_thread_deletion(callback.bot, ticket_data.get('thread_id'), ticket_id, assigned_curator)
+    if not scheduled:
+        # Легасі-тікет без власної гілки — хоч відмічаємо закритим у тексті
+        old_html = callback.message.html_text
+        new_html = old_html.replace("Новий тікет", "✅ <b>ЗАКРИТИЙ тікет</b>")
+        try:
+            await callback.message.edit_text(
+                text=new_html,
+                reply_markup=kb.get_closed_ticket_kb(assigned_curator),
+                link_preview_options=LinkPreviewOptions(is_disabled=True)
+            )
+        except Exception as e:
+            logging.error(f"Не вдалося оновити текст тікета #{ticket_id}: {e}")
     await callback.answer("🔒 Тікет успішно закрито!")
 
     user_id = ticket_data['student_id']
@@ -563,7 +597,20 @@ async def first_ticket_message(message: Message, state: FSMContext):
     else:
         student_display = f"<b>{student_name}</b> (без юзернейму) <code>{student_id}</code>"
 
-    thread_id = cfg.CATEGORY_THREADS.get(category)
+    # Кожен тікет отримує власну гілку в CURATOR_GROUP_ID — так вони не плодяться
+    # в одному спільному треді категорії й видно, скільки запитів реально відкрито.
+    thread_id = None
+    try:
+        topic = await message.bot.create_forum_topic(
+            chat_id=cfg.CURATOR_GROUP_ID,
+            name=f"{category} — {student_name}"[:128],
+            icon_color=cfg.CATEGORY_TOPIC_COLORS.get(category)
+        )
+        thread_id = topic.message_thread_id
+    except TelegramBadRequest as e:
+        # Немає прав "Manage Topics" чи інша тимчасова проблема — тікет все одно
+        # не мусить загубитись, тож падаємо у General (thread_id=None).
+        logging.error(f"Не вдалося створити гілку для тікета студента {student_id}: {e}")
 
     stage_line = ""
     if return_state:
@@ -594,8 +641,20 @@ async def first_ticket_message(message: Message, state: FSMContext):
         reply_markup=kb.get_take_ticket_kb(str(ticket_id)),
         link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
-    await db.create_ticket(ticket_id, message.from_user.id, category, text_content)
-    logging.info(f"Ticket #{ticket_id} created by user {message.from_user.id}")
+
+    if thread_id:
+        # Дублюємо номер тікета в назву гілки, щоб він був видно одразу в списку гілок
+        try:
+            await message.bot.edit_forum_topic(
+                chat_id=cfg.CURATOR_GROUP_ID,
+                message_thread_id=thread_id,
+                name=f"#{ticket_id:05} · {category} · {student_name}"[:128]
+            )
+        except TelegramBadRequest as e:
+            logging.error(f"Не вдалося перейменувати гілку тікета #{ticket_id}: {e}")
+
+    await db.create_ticket(ticket_id, message.from_user.id, category, text_content, thread_id)
+    logging.info(f"Ticket #{ticket_id} created by user {message.from_user.id} in thread {thread_id}")
     
     # фоновий таск на нагадування
     await enqueue_task(
@@ -708,9 +767,15 @@ async def process_email_input(message: Message, state: FSMContext):
 async def user_follow_up_message(message: Message, active_ticket: dict):
     # active_ticket прилітає напряму з фільтра
     ticket_id = active_ticket['ticket_id']
-    thread_id = cfg.CATEGORY_THREADS.get(active_ticket.get('category'))
+    # fallback на CATEGORY_THREADS — для тікетів, відкритих ще до переходу на окремі гілки
+    thread_id = active_ticket.get('thread_id') or cfg.CATEGORY_THREADS.get(active_ticket.get('category'))
     text_content = message.text or message.caption or "[Медіафайл]"
     await db.append_user_message(ticket_id, text_content)
+
+    # Поки тікет "open" (ще нічий) — сповіщення гучне, щоб хтось із кураторів підхопив.
+    # Щойно тікет узяли в роботу, подальші повідомлення студента в цій гілці йдуть тихо:
+    # куратор, що веде тікет, і так стежить за гілкою, а решту не варто смикати щоразу.
+    is_silent = active_ticket.get('status') == 'in_progress'
 
     student_name = message.from_user.full_name
     if message.text:
@@ -719,7 +784,8 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
             message_thread_id=thread_id,
             text=f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>\n{message.text}",
             parse_mode="HTML",
-            reply_to_message_id=ticket_id
+            reply_to_message_id=ticket_id,
+            disable_notification=is_silent
         )
     else:
         custom_caption = f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>\n{message.caption}" if message.caption else f"<code>#{int(ticket_id):05}</code>, <b>{student_name}</b> надіслав(ла) файл"
@@ -729,7 +795,8 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
                 message_thread_id=thread_id,
                 caption=custom_caption,
                 parse_mode="HTML",
-                reply_to_message_id=ticket_id
+                reply_to_message_id=ticket_id,
+                disable_notification=is_silent
             )
         except Exception as e:
             logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} (спроба з caption): {e}")
@@ -740,23 +807,37 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
                     message_thread_id=thread_id,
                     text=f"<code>#{int(ticket_id):05}</code>, <b>{student_name}:</b>",
                     parse_mode="HTML",
-                    reply_to_message_id=ticket_id
+                    reply_to_message_id=ticket_id,
+                    disable_notification=is_silent
                 )
                 await message.copy_to(
                     chat_id=cfg.CURATOR_GROUP_ID,
                     message_thread_id=thread_id,
-                    reply_to_message_id=ticket_id
+                    reply_to_message_id=ticket_id,
+                    disable_notification=is_silent
                 )
             except Exception as e2:
                 logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} (fallback): {e2}")
 
-@support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID, F.reply_to_message)
+@support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID)
 async def curator_reply_handler(message: Message):
-    ticket_id = message.reply_to_message.message_id
-    ticket_data = await db.get_ticket(ticket_id)
+    ticket_data = None
+
+    # Кожен тікет живе у власній гілці, тож саму присутність повідомлення в ній вже
+    # однозначно визначає тікет — reply на конкретне повідомлення більше не обов'язковий.
+    if message.message_thread_id:
+        ticket_data = await db.get_ticket_by_thread(message.message_thread_id)
+
+    # Fallback для тікетів, відкритих ще до переходу на окремі гілки — вони й досі
+    # лежать у спільному category-треді, там ідентифікація лишається через reply
+    if not ticket_data and message.reply_to_message:
+        ticket_data = await db.get_ticket(message.reply_to_message.message_id)
+
     if not ticket_data:
         return
-    
+
+    ticket_id = ticket_data['ticket_id']
+
     if ticket_data['status'] == 'closed':
         await message.reply(f"⚠️ Тікет <code>#{int(ticket_id):05}</code> уже закритий")
         return
@@ -801,22 +882,11 @@ async def curator_reply_handler(message: Message):
     # /close
     if message.text and message.text.lower().strip() == "/close":
         await db.close_ticket(ticket_id)
-
-        old_html = message.reply_to_message.html_text
-        new_html = old_html.replace("Новий тікет", "✅ <b>ЗАКРИТИЙ тікет</b>")
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=ticket_id,
-                text=new_html,
-                parse_mode="HTML",
-                reply_markup=kb.get_closed_ticket_kb(curator_name),
-                link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
-        except Exception as e:
-            print(f"Не вдалося оновити текст тікета: {e}")
-            
-        await message.reply(f"🔒 Тікет <code>#{int(ticket_id):05}</code> успішно закрито")
+        scheduled = await _schedule_ticket_thread_deletion(message.bot, ticket_data.get('thread_id'), ticket_id, curator_name)
+        if not scheduled:
+            # Легасі-тікет без власної гілки — топік нікуди не зникає сам,
+            # тож хоч підтверджуємо закриття текстом
+            await message.reply(f"🔒 Тікет <code>#{int(ticket_id):05}</code> успішно закрито")
 
         await message.bot.send_message(
             chat_id=user_id,

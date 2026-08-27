@@ -243,13 +243,14 @@ async def increment_rules_mistake(doc_id: str):
 # ==========================
 # region --- Ticket System
 
-async def create_ticket(ticket_id: int, student_id: int, category: str, first_message: str):
+async def create_ticket(ticket_id: int, student_id: int, category: str, first_message: str, thread_id: int | None = None):
     """Створення тікета в базі"""
     doc_ref = db.collection('HelpTickets').document(str(ticket_id))
     await doc_ref.set({
         'ticket_id': int(ticket_id),
         'student_id': student_id,
         'category': category,
+        'thread_id': thread_id, # окрема гілка (forum topic) в CURATOR_GROUP_ID для цього тікета
         'user_raw_question': [first_message],
         'curator_name': None,
         'curator_raw_answer': [], # Порожній масив для майбутніх відповідей
@@ -264,6 +265,15 @@ async def get_ticket(ticket_id: int | str) -> dict | None:
     doc_ref = db.collection('HelpTickets').document(str(ticket_id))
     doc = await doc_ref.get()
     if doc.exists:
+        return doc.to_dict()
+    return None
+
+async def get_ticket_by_thread(thread_id: int) -> dict | None:
+    """Шукає тікет за id його гілки (forum topic) в CURATOR_GROUP_ID.
+    Кожен тікет живе у власній гілці, тож thread_id однозначно визначає тікет."""
+    query = db.collection('HelpTickets').where(filter=FieldFilter('thread_id', '==', thread_id)).limit(1)
+    docs = await query.get()
+    for doc in docs:
         return doc.to_dict()
     return None
 

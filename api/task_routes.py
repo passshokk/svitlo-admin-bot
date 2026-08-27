@@ -295,3 +295,27 @@ async def task_delete_messages(request: Request):
         except Exception as e:
             logging.warning(f"Не вдалося видалити повідомлення {msg_id}: {e}")
     return Response(status_code=200)
+
+@tasks_router.post("/delete_ticket_thread")
+async def task_delete_ticket_thread(request: Request):
+    """Фонове видалення гілки закритого тікета, з невеликою затримкою після /close
+    (див. cfg.TICKET_THREAD_DELETE_DELAY_SECONDS), щоб куратор встиг ще раз глянути"""
+    try:
+        payload = await request.json()
+        thread_id = payload.get("thread_id")
+        ticket_id = payload.get("ticket_id")
+
+        if not thread_id:
+            return Response(status_code=400)
+
+        try:
+            await bot.delete_forum_topic(chat_id=cfg.CURATOR_GROUP_ID, message_thread_id=thread_id)
+        except TelegramBadRequest as e:
+            logging.warning(f"Не вдалося видалити гілку тікета #{ticket_id}: {e}")
+
+        return Response(status_code=200)
+
+    except Exception as e:
+        logging.error(f"Delete Ticket Thread Task error: {e}")
+        await report_error(e, context="POST /tasks/delete_ticket_thread")
+        return Response(status_code=500)
