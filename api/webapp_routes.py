@@ -17,13 +17,10 @@ import logging
 import httpx
 from fastapi import File, Form, UploadFile, Request, APIRouter, HTTPException
 
-from bot import keyboards as kb
 from core import database as db
 from core.database import db as firestore_client
 from core.bot_init import bot
-from core import config as cfg
 from core.constants import APPLICATION_RECEIVED_MSG
-from core.utils import format_ai_info_block
 from api.task_routes import schedule_admin_review_digest
 
 # Приховує конкретний спам-варнінг Vertex AI SDK про rest_asyncio fallback на grpc
@@ -317,40 +314,13 @@ async def process_vision(
         except Exception as e:
             logging.warning(f"Failed to notify user {user_id}: {e}")
 
-        # Сповіщення в групу кураторів
-        try:
-            tg_username = student_data.get('telegramUsername', '').replace('@', '')
-            keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=True)
-
-            full_name = f"{student_data.get('firstName', '')} {student_data.get('lastName', '')}"
-            dob = student_data.get('birthDate')
-            dob_str = dob.strftime("%d.%m.%Y") if hasattr(dob, 'strftime') else (dob or 'Не вказано')
-            age_group = f"Older ({dob_str})" if student_data.get('ageGroup') == "older" else f"Younger ({dob_str})"
-            phone = student_data.get('phone', 'Не вказано')
-            display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
-
-            dup_id = student_data.get('possibleDuplicateId')
-            dup_warning = f"⚠️ <b>Можливий дублікат заявки:</b> <code>{dup_id}</code>\n\n" if dup_id else ""
-
-            ai_info_block = format_ai_info_block(ai_info)
-
-            await bot.send_message(
-                chat_id=cfg.ADMIN_GROUP_ID,
-                text=(
-                    f"{dup_warning}\n"
-                    f"<b>🆕 Нова заявка на верифікацію!</b>\n\n"
-                    f"<b>Студент:</b> {full_name}\n"
-                    f"<b>Група:</b> {age_group}\n"
-                    f"<b>Контакти:</b> <code>{phone}</code> | {display_username}\n\n"
-                    f"{ai_info_block}\n\n"
-                    f"Очікує рішення куратора:"
-                ),
-                reply_markup=keyboard
-            )
-        except Exception as e:
-            # Заявку вже прийнято і записано у Firestore, а юзер отримав підтвердження.
-            # Падіння сповіщення в групу НЕ має відкочувати UI сканера у стан помилки.
-            logging.error(f"Failed to send admin notification: {e}")
+        # Розгляд заявки — повністю в Solar Panel (єдиний канал відколи
+        # approve()/reject() там отримали повну паритетність з тим, що робив
+        # цей блок: зарахування SchoolToday, інвайт у чат групи, детальна
+        # причина блокування). Раніше тут стояло повідомлення в ADMIN_GROUP_ID
+        # з кнопками lead_details_/lead_block_/lead_approve_ — усі три
+        # відповідні хендлери в bot/reg_funnel.py і клавіатури в
+        # bot/keyboards.py видалені разом із цим блоком.
 
         return {"success": True}
 

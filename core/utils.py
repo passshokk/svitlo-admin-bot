@@ -183,25 +183,6 @@ def is_gibberish_name(name: str) -> bool:
         return True
     return False
 
-def format_ai_info_block(ai_info: dict) -> str:
-    """Форматує весь блок ШІ-аналізу документа (тип, впевненість, зчитані ім'я/прізвище/ДН)
-    для показу куратору. Без жодної автоматичної звірки з анкетою — рішення лишається за куратором."""
-    ai_info = ai_info or {}
-
-    doc_type = esc_html(ai_info.get("docType")) or "невідомо"
-    confidence = ai_info.get("confidence")
-    confidence_txt = f"{int(confidence * 100)}%" if isinstance(confidence, (int, float)) else "н/д"
-
-    first_name = (ai_info.get("firstName") or "").title()
-    last_name = (ai_info.get("lastName") or "").title()
-    name_part = " ".join(p for p in [esc_html(first_name), esc_html(last_name)] if p) or "не вдалося зчитати"
-    dob_part = esc_html(ai_info.get("birthDate")) or "не вдалося зчитати"
-
-    return (
-        f"<b>AI DOCUMENT REVIEW</b>\n"
-        f"Тип: {doc_type} (точність: {confidence_txt})\n"
-        f"Ім'я: {name_part}\nДН: {dob_part}"
-    )
 
 def esc_html(value) -> str:
     """Екранує довільний текст користувача перед вставкою у HTML-повідомлення (parse_mode='HTML' за замовчуванням)"""

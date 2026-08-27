@@ -4,7 +4,6 @@ from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
-from google.cloud import firestore
 import asyncio
 import logging
 import re
@@ -18,12 +17,10 @@ from bot.states import Registration, TicketFSM
 from core.constants import (
     QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG,
     LEAD_INTERLUDE_2_MSG, SCANNER_MSG,
-    APPLICATION_CONFIRMED_MSG, APPLICATION_CONFIRMED_NO_CHAT_MSG,
 )
 from core.context import student_ctx
-from api.task_manager import enqueue_task, SCHOOLTODAY_QUEUE
+from api.task_manager import enqueue_task
 from core.config import EMAIL_REGEX, ENG_NAME_REGEX, UKR_REGEX
-from core import config as cfg
 from bot.filters import IsTesterFilter
 
 # ===============================================================
@@ -124,9 +121,12 @@ def _prompt(state) -> str:
 # ===============================================================
 
 reg_router = Router()
-# Дозволяємо приватні чати (воронка реєстрації) та групу ADMIN_GROUP_ID (дії кураторів з анкетами).
-reg_router.message.filter((F.chat.type == "private") | (F.chat.id == cfg.ADMIN_GROUP_ID))
-reg_router.callback_query.filter((F.message.chat.type == "private") | (F.message.chat.id == cfg.ADMIN_GROUP_ID))
+# Раніше тут ще дозволялась ADMIN_GROUP_ID — для кнопок lead_*, які реагували
+# на повідомлення в адмінчаті. Розгляд заявок переїхав у Solar Panel, ті
+# хендлери прибрано, і в reg_router більше немає нічого, що очікувало б
+# оновлень із групового чату — лише кроки воронки реєстрації (приватні чати).
+reg_router.message.filter(F.chat.type == "private")
+reg_router.callback_query.filter(F.message.chat.type == "private")
 
 # endregion =====================================================
 # region INTERCEPTORS
@@ -1052,214 +1052,14 @@ async def cmd_test_idcheck(message: Message, state: FSMContext):
 # лід переводиться на етап Registration.admin_review, а адміністратор отримує його профіль на розгляд
 
 # endregion =====================================================
-# region ADMIN REVIEW
-# ===============================================================
-
-@reg_router.callback_query(F.data == "hidden_profile_alert")
-async def alert_hidden_profile(callback: CallbackQuery):
-    """Показує повідомлення куратору, якщо у ліда немає юзернейму"""
-    await callback.answer(
-        "⚠️ У студента прихований профіль без юзернейму.\n"
-        "Скористайся його номером телефону, щоб зв'язатися", 
-        show_alert=True
-    )
-
-@reg_router.callback_query(F.data.startswith("lead_details_"))
-async def admin_show_lead_details(callback: CallbackQuery):
-    doc_id = callback.data.split("_")[2]
-    
-    doc = await firestore_client.collection('Svitlo').document(doc_id).get()
-    if not doc.exists:
-        await callback.answer("Анкету не знайдено", show_alert=True)
-        return
-        
-    data = doc.to_dict()
-    health_text = f"Так ({ut.esc_html(data.get('healthIssuesDetails'))})" if data.get('hasHealthIssues') else "Ні"
-
-    tg_username = data.get('telegramUsername', '').replace('@', '')
-    phone = data.get('phone', 'Не вказано')
-    display_username = f"@{tg_username}" if tg_username else "Без юзернейму"
-
-    # Форматування дати народження для читабельності
-    dob = data.get('birthDate')
-    dob_str = dob.strftime("%d.%m.%Y") if hasattr(dob, 'strftime') else str(dob)
-
-    displaced_info = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
-
-    dup_id = data.get('possibleDuplicateId')
-    dup_warning = f"⚠️ <b>Можливий дублікат заявки:</b> <code>{dup_id}</code>\n\n" if dup_id else ""
-
-    ai_info_block = ut.format_ai_info_block(data.get('aiInfo'))
-
-    detailed_text = (
-        f"{dup_warning}"
-        f"<b>📋 Повна анкета: {data.get('firstName')} {data.get('lastName')}</b>\n\n"
-        f"<b>Дата народження:</b> {dob_str} ({data.get('ageGroup')})\n"
-        f"<b>Email:</b> {data.get('email')}\n"
-        f"<b>Контакти:</b>\n{phone}\n{display_username}\n"
-        f"<b>Стать:</b> {data.get('gender')}\n"
-        f"<b>Локація:</b> {data.get('city')}, {data.get('country')}\n"
-        f"<b>Джерело ліда:</b> {ut.esc_html(data.get('leadSource'))}\n\n"
-        f"<b>ВПО/біженець:</b> {displaced_info}\n"
-        f"<b>Проблеми зі здоров'ям:</b> {health_text}\n\n"
-        f"<b>Відповідальна особа:</b>\n{data.get('parentFirstName')} {data.get('parentLastName')}\n"
-        f"{data.get('parentPhone')}\n{data.get('parentEmail')}\n\n"
-        f"{ai_info_block}\n"
-        f"<i>⚠️ Звір з даними анкети вище</i>"
-    )
-
-    keyboard = kb.get_admin_action_kb(doc_id, tg_username, include_details_btn=False)
-
-    await callback.answer()
-    await callback.message.edit_text(detailed_text, reply_markup=keyboard)
-
-@reg_router.callback_query(F.data.startswith("lead_confirmblock_"))
-async def admin_confirm_block_lead(callback: CallbackQuery):
-    doc_id = callback.data.split("_")[2]
-    await callback.answer()
-    await callback.message.edit_reply_markup(
-        reply_markup=kb.get_admin_confirm_block_kb(doc_id)
-    )
-
-@reg_router.callback_query(F.data.startswith("lead_block_"))
-async def admin_block_lead(callback: CallbackQuery):
-    await callback.answer("Заявку заблоковано")
-    doc_id = callback.data.split("_")[2]
-    
-    # 1. Отримуємо документ для витягування telegramId
-    doc_ref = firestore_client.collection('Svitlo').document(doc_id)
-    doc = await doc_ref.get()
-    
-    if not doc.exists:
-        await callback.message.edit_text(f"{callback.message.html_text}\n\n❌ <b>Помилка: Анкету не знайдено</b>")
-        return
-
-    data = doc.to_dict()
-    user_id = data.get('telegramId')
-
-    # 2. Переводимо stage в blocked у Flat Schema
-    # Текстову причину тут вписати нема де — це один клік по інлайн-кнопці
-    # в Telegram, без поля вводу. Тому фіксуємо все, що доступно автоматично:
-    # хто натиснув, коли, і на якій стадії була заявка на той момент (остання
-    # деталь важлива — «відхилив на admin_review» і «відхилив на lead» це
-    # різні за змістом рішення). Розгорнуте пояснення можна дати в панелі:
-    # там при блокуванні є поле нотатки.
-    reviewer = callback.from_user
-    reviewer_handle = f" @{reviewer.username}" if reviewer.username else ""
-    await db.update_crm_stage(doc_id, "blocked", reason="\n".join([
-        "Правило: ручне відхилення куратором через інлайн-кнопку в Telegram",
-        f"Куратор: {reviewer.full_name}{reviewer_handle} (id={reviewer.id})",
-        f"Стадія на момент відхилення: {data.get('stage') or 'не визначено'}",
-        f"Час події (UTC): {callback.message.date:%Y-%m-%d %H:%M:%S}",
-        "Пояснення не вказано: кнопка в Telegram не має поля вводу. "
-        "Щоб зафіксувати причину текстом, блокуй із панелі.",
-    ]))
-    await db.clear_user_fsm(user_id)
-
-    # 3. Оновлюємо інтерфейс куратора
-    await callback.message.edit_text(
-        f"<b>⛔️ ЗАЯКУ ВІДХИЛЕНО</b>\n"
-        f"Куратор: {reviewer.full_name}\n\n"
-        f"{callback.message.html_text}",
-        reply_markup=None
-    )
-
-    # 4. Сповіщаємо спамера (опціонально)
-    if user_id:
-        try:
-            await callback.bot.send_message(
-                chat_id=user_id,
-                text="❌ <b>Твою заявку було відхилено адміністратором.</b> Доступ до системи обмежено",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass # Якщо юзер уже заблокував бота
-
-@reg_router.callback_query(F.data.startswith("lead_approve_"))
-async def admin_approve_lead(callback: CallbackQuery):
-    await callback.answer()
-    doc_id = callback.data.split("_")[2]
-    
-    # 1. Оновлюємо статус в БД на 'student'
-    await firestore_client.collection('Svitlo').document(doc_id).update({
-        "roles": firestore.ArrayUnion(["student"]) # Додаємо роль, не затираючи вже наявні
-    })
-    await db.update_crm_stage(doc_id, "student")
-
-
-    # 2. Оновлюємо інтерфейс куратора
-    reviewer_name = callback.from_user.full_name
-    await callback.message.edit_text(
-        f"{callback.message.html_text}\n\n"
-        f"✅ <b>ЗАРАХОВАНО!</b> (Куратор: {reviewer_name})",
-        parse_mode="HTML",
-        reply_markup=None # Видаляємо кнопки
-    )
-
-    
-    # 3. Асинхронно синхронізуємо студента з SchoolToday (через Cloud Tasks, щоб не блокувати вебхук)
-    # Окрема черга: зарахування йдуть по одному, бо ШС не захищений від гонки
-    await enqueue_task("/tasks/schooltoday_enroll", {"doc_id": doc_id},
-                       queue=SCHOOLTODAY_QUEUE)
-
-    # 4. Надсилаємо студенту привітання та Lock Screen меню
-    doc = await firestore_client.collection('Svitlo').document(doc_id).get()
-    data = doc.to_dict()
-
-    user_id = data.get('telegramId')
-    # Видаляємо технічний смітник з FSM_Sessions (фінальне очищення)
-    await db.clear_user_fsm(user_id)
-    
-    first_name = data.get('firstName', 'Student')
-    gender = data.get('gender', '')
-    if gender == "Male": dp_gender = "студент"
-    elif gender == "Female": dp_gender = "студентка"
-    else: dp_gender = "студент(-ка)"
-
-    # Персональне посилання в чат вікової групи. Без expire_date навмисно:
-    # від схвалення до початку занять минає близько двох тижнів, і одноденне
-    # посилання встигло б протухнути ще до того, як учень ним скористається.
-    # member_limit=1 лишає його одноразовим.
-    invite_link = None
-    target_chat_id = cfg.GROUPS_MAPPING.get(data.get("ageGroup"))
-    if target_chat_id:
-        try:
-            invite = await callback.bot.create_chat_invite_link(
-                chat_id=int(target_chat_id), member_limit=1
-            )
-            invite_link = invite.invite_link
-        except Exception as exc:
-            logging.error("Не вдалося створити посилання в чат для %s: %s", doc_id, exc)
-
-    term_start = await db.get_term_start_date()
-    template = APPLICATION_CONFIRMED_MSG if invite_link else APPLICATION_CONFIRMED_NO_CHAT_MSG
-    formatted_text = template.format(
-        name=first_name,
-        student=dp_gender,
-        email=data.get("email") or "твою пошту",
-        term_start_date=term_start,
-    )
-
-    await callback.bot.send_message(
-        chat_id=user_id,
-        text=formatted_text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-        reply_markup=kb.get_welcome_chat_kb(invite_link) if invite_link else None,
-    )
-
-    if invite_link:
-        await db.grant_access_to_student(doc_id, user_id)
-    else:
-        # Куратор має дізнатись одразу: учень лишився без чату й чекає посилання
-        await callback.bot.send_message(
-            cfg.CURATOR_GROUP_ID,
-            f"⚠️ <b>{first_name}</b> схвалений, але посилання в чат не створилось.\n"
-            f"Вікова група: <code>{data.get('ageGroup') or '—'}</code>\n"
-            f"Надішли посилання вручну.",
-        )
-
-# endregion =====================================================
+# Розгляд заявок (детальна анкета, схвалити/відхилити) повністю переїхав у
+# Solar Panel — раніше тут був регіон ADMIN REVIEW з п'ятьма хендлерами
+# (lead_details_/lead_confirmblock_/lead_block_/lead_approve_/
+# hidden_profile_alert), які реагували на кнопки під повідомленням в
+# ADMIN_GROUP_ID. Те повідомлення прибрано з api/webapp_routes.py, тож ці
+# callback_data більше нізвідки не приходять — код був нереференсованим
+# мертвим кодом, і його прибрано разом із клавіатурами
+# get_admin_action_kb/get_admin_confirm_block_kb у bot/keyboards.py.
 # region FALLBACKs
 # ===============================================================
 

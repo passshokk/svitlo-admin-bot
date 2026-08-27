@@ -166,35 +166,6 @@ def get_scanner_webapp_kb() -> InlineKeyboardMarkup:
     )
     return builder.as_markup()
 
-# --- admin review ---
-
-def get_admin_action_kb(doc_id: str, tg_username: str, include_details_btn: bool = False) -> InlineKeyboardMarkup:
-    """Генерує клавіатуру для кураторів (для нових лідів або розгорнутої анкети)"""
-    builder = InlineKeyboardBuilder()
-    
-    if include_details_btn:
-        builder.button(text="🔍 Розгорнути анкету", callback_data=f"lead_details_{doc_id}")
-        
-    if tg_username:
-        builder.button(text="💬 Зв'язатися", url=f"https://t.me/{tg_username}")
-    else:
-        builder.button(text="💬 Зв'язатися (За номером)", callback_data="hidden_profile_alert")
-        
-    builder.button(text="⛔️ Відхилити", callback_data=f"lead_confirmblock_{doc_id}")
-    builder.button(text="✅ Зарахувати (SchoolToday)", callback_data=f"lead_approve_{doc_id}")
-    
-    builder.adjust(1)
-    return builder.as_markup()
-
-def get_admin_confirm_block_kb(doc_id: str) -> InlineKeyboardMarkup:
-    """Клавіатура підтвердження видалення ліда (захист від міскліку)"""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Так, точно відхилити", callback_data=f"lead_block_{doc_id}")
-    builder.button(text="🔙 Скасувати", callback_data=f"lead_details_{doc_id}")
-    
-    builder.adjust(1)
-    return builder.as_markup()
-
 # --- fallback ---
 
 def get_registration_cancel_confirm() -> InlineKeyboardMarkup:
