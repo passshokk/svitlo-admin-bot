@@ -264,18 +264,29 @@ def get_sasha_curator_keyboard() -> InlineKeyboardMarkup:
 # ==========================
 # region --- Ticket System
 
-def get_ticket_cancel_kb() -> ReplyKeyboardMarkup:
-    buttons = [[KeyboardButton(text="🚫 Скасувати запит")]]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+# Слаг -> текст категорії (короткий слаг тримає callback_data компактним)
+TICKET_CATEGORIES = {
+    "tech": "Технічні баги",
+    "edu": "Освітній процес",
+    "org": "Організаційні питання",
+}
 
-def get_categories_kb() -> ReplyKeyboardMarkup:
-    buttons = [
-        [KeyboardButton(text="Технічні баги")],
-        [KeyboardButton(text="Освітній процес")],
-        [KeyboardButton(text="Організаційні питання")],
-        [KeyboardButton(text="🚫 Скасувати запит")]
-    ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+def get_ticket_cancel_kb() -> InlineKeyboardMarkup:
+    """Інлайн-кнопка скасування, поки тікет ще не створено (вибір категорії/опис запиту)"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚫 Скасувати запит", callback_data="tcat_cancel_fsm")]
+    ])
+
+def get_categories_kb() -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(text=label, callback_data=f"tcat:{slug}")] for slug, label in TICKET_CATEGORIES.items()]
+    buttons.append([InlineKeyboardButton(text="🚫 Скасувати запит", callback_data="tcat_cancel_fsm")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_active_ticket_kb() -> InlineKeyboardMarkup:
+    """Інлайн-кнопка скасування вже поданого (навіть узятого в роботу) тікета"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚫 Скасувати запит", callback_data="tcat_cancel_ticket")]
+    ])
 
 def get_take_ticket_kb(ticket_id: str) -> InlineKeyboardMarkup:
     """Клавіатура, коли тікет відкритий"""
@@ -295,6 +306,13 @@ def get_closed_ticket_kb(curator_name: str) -> InlineKeyboardMarkup:
     """Клавіатура, коли тікет вже закрито"""
     buttons = [
         [InlineKeyboardButton(text=f"✅ Закрито: {curator_name}", callback_data="noop")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_cancelled_ticket_kb() -> InlineKeyboardMarkup:
+    """Клавіатура, коли тікет скасував сам студент"""
+    buttons = [
+        [InlineKeyboardButton(text="🚫 Скасовано студентом", callback_data="noop")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

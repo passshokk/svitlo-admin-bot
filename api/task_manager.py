@@ -53,7 +53,10 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0,
             "http_method": tasks_v2.HttpMethod.POST,
             "url": url,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(payload).encode(),
+            # default=... — деякі payload'и (напр. тікет із Firestore) містять datetime,
+            # який json.dumps сам не серіалізує; .isoformat() і рядок переживають
+            # рейс-тріп через Cloud Tasks, де приймач розбирає їх назад (див. format_notion_date)
+            "body": json.dumps(payload, default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o)).encode(),
         }
     }
 

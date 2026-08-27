@@ -245,9 +245,14 @@ if not NOTION_TOKEN:
 DATABASE_ID = "384f78e184b380b3858ee57ad13f2b54"
 
 def format_notion_date(date_val) -> str:
-    """Перетворює дату у правильний ISO формат з часовим поясом для Notion"""
+    """Перетворює дату у правильний ISO формат з часовим поясом для Notion.
+    Приймає як datetime (пряме читання з Firestore), так і рядок ISO — payload
+    тікета проходить через Cloud Tasks (JSON), де datetime серіалізується в рядок."""
     if not date_val:
         return None
+
+    if isinstance(date_val, str):
+        date_val = datetime.fromisoformat(date_val)
 
     dt = date_val.astimezone(ZoneInfo("Europe/Kyiv"))
     return dt.isoformat()

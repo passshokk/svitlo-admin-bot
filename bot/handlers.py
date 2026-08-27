@@ -349,21 +349,24 @@ async def _resume_paused_registration(bot, user_id: int) -> None:
     # могла "поховати" питання анкети далеко вгорі чату.
     await render_registration_prompt(bot, user_id, return_state, data)
 
-async def _schedule_ticket_thread_deletion(bot, thread_id: int | None, ticket_id, curator_name: str) -> bool:
-    """Попереджає в гілці закритого тікета, що вона скоро зникне, і ставить фонову задачу
-    на видалення через cfg.TICKET_THREAD_DELETE_DELAY_SECONDS — так з поля зору
-    ускладнюють картину лише реально відкриті запити, але куратор встигає ще раз глянути.
+def _ticket_thread_notice(intro_html: str) -> str:
+    minutes = cfg.TICKET_THREAD_DELETE_DELAY_SECONDS // 60
+    return f"{intro_html}\nЦя гілка автоматично видалиться через {minutes} хв."
+
+async def _schedule_ticket_thread_deletion(bot, thread_id: int | None, ticket_id, notice_text: str) -> bool:
+    """Шле в гілку тікета notice_text (див. _ticket_thread_notice) і ставить фонову задачу
+    на видалення через cfg.TICKET_THREAD_DELETE_DELAY_SECONDS — так з поля зору кураторів
+    зникають лише реально закриті/скасовані запити, але є хвилина-дві "останній погляд".
     Легасі-тікети без власної гілки (thread_id=None) пропускаються. Повертає True, якщо
     видалення заплановано."""
     if not thread_id:
         return False
 
-    minutes = cfg.TICKET_THREAD_DELETE_DELAY_SECONDS // 60
     try:
         await bot.send_message(
             chat_id=cfg.CURATOR_GROUP_ID,
             message_thread_id=thread_id,
-            text=f"<b>✅ Дякуємо за опрацювання, {curator_name}!</b>\nЦя гілка автоматично видалиться через {minutes} хв.",
+            text=notice_text,
             parse_mode="HTML"
         )
     except TelegramBadRequest as e:
@@ -403,19 +406,16 @@ async def inline_close_ticket(callback: CallbackQuery):
     # ================================================
 
     await db.close_ticket(ticket_id)
-    scheduled = await _schedule_ticket_thread_deletion(callback.bot, ticket_data.get('thread_id'), ticket_id, assigned_curator)
-    if not scheduled:
-        # Легасі-тікет без власної гілки — хоч відмічаємо закритим у тексті
-        old_html = callback.message.html_text
-        new_html = old_html.replace("Новий тікет", "✅ <b>ЗАКРИТИЙ тікет</b>")
-        try:
-            await callback.message.edit_text(
-                text=new_html,
-                reply_markup=kb.get_closed_ticket_kb(assigned_curator),
-                link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
-        except Exception as e:
-            logging.error(f"Не вдалося оновити текст тікета #{ticket_id}: {e}")
+
+    # Кнопки на самому тікеті міняємо одразу — інакше до видалення гілки (за 2 хв)
+    # повідомлення виглядає так, ніби нічого не сталось, і закриття здається "само собою"
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb.get_closed_ticket_kb(assigned_curator))
+    except Exception as e:
+        logging.error(f"Не вдалося оновити кнопки тікета #{ticket_id}: {e}")
+
+    notice = _ticket_thread_notice(f"<b>✅ Дякуємо за опрацювання, {assigned_curator}!</b>")
+    await _schedule_ticket_thread_deletion(callback.bot, ticket_data.get('thread_id'), ticket_id, notice)
     await callback.answer("🔒 Тікет успішно закрито!")
 
     user_id = ticket_data['student_id']
@@ -543,8 +543,7 @@ async def show_prefect_info(callback: CallbackQuery):
 # region FSM (Messages)
 # ===============================================================
 
-@public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "🚫 Скасувати запит"]))
-async def cancel_ticket_fsm(message: Message, state: FSMContext):
+async def _cancel_ticket_fsm(bot, user_id: int, state: FSMContext) -> None:
     data = await state.get_data()
     return_state = data.get("return_state")
 
@@ -553,27 +552,53 @@ async def cancel_ticket_fsm(message: Message, state: FSMContext):
         # нема діалогу, який треба берегти, тож повертаємо в реєстрацію одразу.
         await state.update_data(return_state=None)
         await state.set_state(return_state)
-        await message.answer("Звернення скасовано, повертаємось до реєстрації 👌", reply_markup=ReplyKeyboardRemove())
-        await render_registration_prompt(message.bot, message.from_user.id, return_state, data)
+        await bot.send_message(user_id, "Звернення скасовано, повертаємось до реєстрації 👌", reply_markup=ReplyKeyboardRemove())
+        await render_registration_prompt(bot, user_id, return_state, data)
         return
 
     await state.clear()
-    await message.answer("Створення запиту скасовано 👌", reply_markup=ReplyKeyboardRemove())
-    await message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
+    await bot.send_message(user_id, "Створення запиту скасовано 👌", reply_markup=ReplyKeyboardRemove())
+    await bot.send_message(user_id, "Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
 
-@public_router.message(TicketFSM.choosing_category, F.text.in_(["Технічні баги", "Освітній процес", "Організаційні питання"]))
-async def category_chosen(message: Message, state: FSMContext):
-    await state.update_data(category=message.text)
+@public_router.message(StateFilter(TicketFSM), F.text.in_(["🔙 Назад у меню", "🚫 Скасувати запит"]))
+async def cancel_ticket_fsm(message: Message, state: FSMContext):
+    # Легасі: старий текст із реплай-клавіатури (лишається для тих, у кого вона ще
+    # на екрані від версії до переходу на інлайн-кнопки)
+    await _cancel_ticket_fsm(message.bot, message.from_user.id, state)
+
+@public_router.callback_query(StateFilter(TicketFSM), F.data == "tcat_cancel_fsm")
+async def cancel_ticket_fsm_inline(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    try:
+        # reply_markup=None прибирає інлайн-кнопки — без цього Telegram лишає стару
+        # клавіатуру на відредагованому повідомленні
+        await callback.message.edit_text("🚫 Створення запиту скасовано", reply_markup=None)
+    except Exception:
+        pass
+    await _cancel_ticket_fsm(callback.bot, callback.from_user.id, state)
+
+@public_router.callback_query(TicketFSM.choosing_category, F.data.startswith("tcat:"))
+async def category_chosen_inline(callback: CallbackQuery, state: FSMContext):
+    slug = callback.data.split(":", 1)[1]
+    category = kb.TICKET_CATEGORIES.get(slug)
+    if not category:
+        await callback.answer()
+        return
+
+    await callback.answer()
+    await state.update_data(category=category)
     await state.set_state(TicketFSM.writing_first_message)
-    await message.answer(
+    await callback.message.edit_text(
+        f"<b>Категорія: {category}</b>\n\n"
         "<b>Опиши питання чи проблему.</b> Живий куратор відповість найближчим часом!\n\n"
         "<i>Можеш надсилати не лише текст, а голосові, фото та відео</i>",
+        parse_mode="HTML",
         reply_markup=kb.get_ticket_cancel_kb()
     )
 
 @public_router.message(TicketFSM.choosing_category)
 async def category_fallback(message: Message):
-    await message.answer("Будь ласка, вибери категорію кнопками нижче 👇")
+    await message.answer("Будь ласка, вибери категорію кнопкою під повідомленням вище 👆")
 
 def _humanize_registration_state(state_str: str | None) -> str:
     """Технічна мітка етапу реєстрації для кураторів (напр. 'Registration:entering_dob' -> 'entering dob')."""
@@ -678,10 +703,10 @@ async def first_ticket_message(message: Message, state: FSMContext):
         # щоб ActiveTicketFilter пропускав діалог з куратором; в реєстрацію
         # повернемо через _resume_paused_registration(), коли тікет закриють.
         await state.set_state(None)
-        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
+        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...", reply_markup=kb.get_active_ticket_kb())
     else:
         await state.clear()
-        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...")
+        await message.answer("<b>✅ Твій запит уже летить до кураторів!</b> Шукаємо вільного...", reply_markup=kb.get_active_ticket_kb())
 
 @public_router.message(Registration.waiting_email, F.text.in_(["🚫 Скасувати введення", "Скасувати"]))
 async def cancel_email_input(message: Message, state: FSMContext):
@@ -763,6 +788,83 @@ async def process_email_input(message: Message, state: FSMContext):
 # region HELP CENTRE
 # ===============================================================
 
+async def _cancel_active_ticket_core(bot, active_ticket: dict) -> None:
+    """Студент відкликає вже поданий (навіть узятий у роботу) тікет."""
+    ticket_id = active_ticket['ticket_id']
+    user_id = active_ticket['student_id']
+    # own_thread_id — власна гілка тікета, її й тільки її можна видаляти.
+    # post_thread_id — куди постити сповіщення прямо зараз (для легасі-тікетів це
+    # спільний category-тред — його чіпати не можна, там можуть сидіти інші тікети).
+    own_thread_id = active_ticket.get('thread_id')
+    post_thread_id = own_thread_id or cfg.CATEGORY_THREADS.get(active_ticket.get('category'))
+    curator_name = active_ticket.get('curator_name')
+
+    await db.cancel_ticket(ticket_id)
+
+    # Кнопки на самому тікеті міняємо одразу — той самий принцип, що й при закритті:
+    # куратор має бачити наслідок дії, а не здогадуватись, чому гілка раптом зникла
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=cfg.CURATOR_GROUP_ID,
+            message_id=ticket_id,
+            reply_markup=kb.get_cancelled_ticket_kb()
+        )
+    except Exception as e:
+        logging.error(f"Не вдалося оновити кнопки тікета #{ticket_id} після скасування: {e}")
+
+    intro = f"<b>🚫 Студент скасував тікет <code>#{int(ticket_id):05}</code>.</b>"
+    if curator_name:
+        intro += f"\nБуло в роботі: {curator_name}"
+
+    if own_thread_id:
+        notice = _ticket_thread_notice(intro)
+        await _schedule_ticket_thread_deletion(bot, own_thread_id, ticket_id, notice)
+    else:
+        # легасі-тікет у спільному category-треді — гілку не чіпаємо, лише сповіщаємо
+        try:
+            await bot.send_message(
+                chat_id=cfg.CURATOR_GROUP_ID,
+                message_thread_id=post_thread_id,
+                text=intro,
+                parse_mode="HTML",
+                reply_to_message_id=ticket_id
+            )
+        except Exception as e:
+            logging.error(f"Не вдалося повідомити про скасування тікета #{ticket_id}: {e}")
+
+    await bot.send_message(user_id, "Гаразд, запит скасовано 👌", reply_markup=ReplyKeyboardRemove())
+    await _resume_paused_registration(bot, user_id)
+
+@support_router.message(F.chat.type == "private", ActiveTicketFilter(), F.text == "🚫 Скасувати запит")
+async def cancel_active_ticket(message: Message, active_ticket: dict):
+    # Легасі: текстова кнопка з реплай-клавіатури (лишається для тих, у кого вона ще
+    # на екрані від версії до переходу на інлайн-кнопки)
+    await _cancel_active_ticket_core(message.bot, active_ticket)
+
+@support_router.callback_query(F.data == "tcat_cancel_ticket")
+async def cancel_active_ticket_inline(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() is not None:
+        # малоймовірно (кнопка лишилась зі старого повідомлення, а юзер вже десь
+        # в іншому FSM), але про всяк випадок ігноруємо замість збою
+        await callback.answer()
+        return
+
+    active_ticket = await db.get_active_ticket(callback.from_user.id)
+    if not active_ticket:
+        await callback.answer("⚠️ Цей запит уже не активний", show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await _cancel_active_ticket_core(callback.bot, active_ticket)
+
 @support_router.message(F.chat.type == "private", ActiveTicketFilter())
 async def user_follow_up_message(message: Message, active_ticket: dict):
     # active_ticket прилітає напряму з фільтра
@@ -819,8 +921,11 @@ async def user_follow_up_message(message: Message, active_ticket: dict):
             except Exception as e2:
                 logging.error(f"Не вдалося переслати медіа тікета #{ticket_id} (fallback): {e2}")
 
-@support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID)
+@support_router.message(F.chat.id == cfg.CURATOR_GROUP_ID, ~F.from_user.is_bot)
 async def curator_reply_handler(message: Message):
+    # ~F.from_user.is_bot відсікає службові повідомлення від самого бота (напр.
+    # "renamed the topic to ..." від create_forum_topic/edit_forum_topic) — інакше
+    # вони матчились по message_thread_id як "відповідь куратора без призначення"
     ticket_data = None
 
     # Кожен тікет живе у власній гілці, тож саму присутність повідомлення в ній вже
@@ -882,7 +987,20 @@ async def curator_reply_handler(message: Message):
     # /close
     if message.text and message.text.lower().strip() == "/close":
         await db.close_ticket(ticket_id)
-        scheduled = await _schedule_ticket_thread_deletion(message.bot, ticket_data.get('thread_id'), ticket_id, curator_name)
+
+        # Кнопки на самому тікеті міняємо одразу — інакше до видалення гілки (за 2 хв)
+        # повідомлення виглядає так, ніби нічого не сталось, і закриття здається "само собою"
+        try:
+            await message.bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=ticket_id,
+                reply_markup=kb.get_closed_ticket_kb(curator_name)
+            )
+        except Exception as e:
+            logging.error(f"Не вдалося оновити кнопки тікета #{ticket_id}: {e}")
+
+        notice = _ticket_thread_notice(f"<b>✅ Дякуємо за опрацювання, {curator_name}!</b>")
+        scheduled = await _schedule_ticket_thread_deletion(message.bot, ticket_data.get('thread_id'), ticket_id, notice)
         if not scheduled:
             # Легасі-тікет без власної гілки — топік нікуди не зникає сам,
             # тож хоч підтверджуємо закриття текстом

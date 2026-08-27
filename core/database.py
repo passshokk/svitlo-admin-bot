@@ -308,10 +308,19 @@ async def assign_curator(ticket_id: str, curator_name: str):
     })
 
 async def close_ticket(ticket_id: str):
-    """Закриття тікета"""
+    """Закриття тікета (вирішено куратором)"""
     doc_ref = db.collection('HelpTickets').document(str(ticket_id))
     await doc_ref.update({
         'status': 'closed',
+        'closed_at': get_kyivtime_now()
+    })
+
+async def cancel_ticket(ticket_id: str):
+    """Скасування тікета самим студентом (окремо від 'closed', щоб не плутати
+    з вирішеними куратором запитами в аналітиці/NPS)"""
+    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    await doc_ref.update({
+        'status': 'cancelled',
         'closed_at': get_kyivtime_now()
     })
 

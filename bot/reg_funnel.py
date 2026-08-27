@@ -5,7 +5,6 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMedi
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 import asyncio
-import logging
 import re
 from datetime import datetime, timezone
 
