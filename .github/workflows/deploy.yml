@@ -31,4 +31,8 @@ jobs:
           --min-instances=1 \
           --max-instances=5 \
           --memory 512Mi \
-        --set-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}",SERVICE_URL="${{ secrets.SERVICE_URL }}",NOTION_TOKEN="${{ secrets.NOTION_TOKEN }}",WEBHOOK_SECRET="${{ secrets.WEBHOOK_SECRET }}",WEBAPP_URL="${{ secrets.WEBAPP_URL }}",SCHOOL_TODAY_API_KEY="${{ secrets.SCHOOL_TODAY_API_KEY }}"
+        --update-env-vars BOT_TOKEN="${{ secrets.BOT_TOKEN }}",SERVICE_URL="${{ secrets.SERVICE_URL }}",NOTION_TOKEN="${{ secrets.NOTION_TOKEN }}",WEBHOOK_SECRET="${{ secrets.WEBHOOK_SECRET }}",WEBAPP_URL="${{ secrets.WEBAPP_URL }}",SCHOOL_TODAY_API_KEY="${{ secrets.SCHOOL_TODAY_API_KEY }}"
+        # --update-env-vars, а не --set-env-vars: останній ПОВНІСТЮ перезаписує
+        # список env vars на кожному деплої, тому будь-яка змінна, додана
+        # вручну через `gcloud run services update` (напр. ADMIN_PANEL_SECRET),
+        # мовчки зникала б наступним же пушем і клала сервіс при старті.
