@@ -63,21 +63,25 @@ async def main():
     assert "pupilIDs" not in parent_payload, "pupilIDs не має бути в payload батька"
     print("  OK  payload батька не містить pupilIDs")
 
+    # «Довільне поле школи» — назва, якої немає в наших FIELD_IDS: так само
+    # виглядає будь-яке поле, що завела школа й ведемо не ми. Має вціліти.
     existing = [
         {"name": registry["field_name"]["roles"], "value": "SCL;BUDDY"},
-        {"name": registry["field_name"]["house"], "value": "Cambria"},
-        {"name": registry["field_name"]["age_group"], "value": "10-13 років"},
-        {"name": registry["field_name"]["age_group"], "value": "10-13 років"},
+        {"name": "Довільне поле школи", "value": "Cambria"},
+        {"name": registry["field_name"]["semester"], "value": "1_00-01"},
+        {"name": registry["field_name"]["semester"], "value": "1_00-01"},
     ]
     merged = st.merge_custom_data(existing, await st.build_pupil_custom_data(DOC))
     names = [e["name"] for e in merged]
     roles = next(e for e in merged if e["name"] == registry["field_name"]["roles"])
     assert roles["value"] == "SCL;BUDDY", "ролі мають вціліти"
+    school_own = next(e for e in merged if e["name"] == "Довільне поле школи")
+    assert school_own["value"] == "Cambria", "чуже поле школи має вціліти"
     assert len(names) == len(set(names)), "дублікати мають схлопнутись"
-    age = next(e for e in merged if e["name"] == registry["field_name"]["age_group"])
-    assert age["value"] == "14-18 років", "наше значення має перекрити старе"
-    print("  OK  merge_custom_data зберіг «Ролі» і «House», схлопнув дублі,")
-    print("      перезаписав «Вікова група» на наше значення")
+    semester = next(e for e in merged if e["name"] == registry["field_name"]["semester"])
+    assert semester["value"] == DOC["semester"], "наше значення має перекрити старе"
+    print("  OK  merge_custom_data зберіг «Ролі» і чуже поле школи, схлопнув дублі,")
+    print("      перезаписав «Семестр зарахування» на наше значення")
 
     payload = await st.build_pupil_payload(DOC_ID, DOC)
     assert "parentIDs" not in payload, "parentIDs не має з'являтись без потреби"
@@ -89,7 +93,7 @@ async def main():
     print("  OK  ключ батька: лікування працює, обрізані номери відхиляються")
 
     for raw in ["olesia_m", "@olesia_m", "  @olesia_m  "]:
-        assert st.normalize_nickname(raw) == "@olesia_m"
+        assert st.normalize_nickname(raw) == "olesia_m"
     print("  OK  нікнейм зводиться до одного формату")
 
     blank = dict(DOC, healthIssuesDetails="", displacedRegion="", leadSource="")

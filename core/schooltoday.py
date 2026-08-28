@@ -318,9 +318,13 @@ def merge_custom_data(existing: Iterable[dict] | None,
 # ---------------------------------------------------------------------------
 
 def normalize_nickname(value: str | None) -> str:
-    """Нікнейми в базі записані по-різному — половина з '@', половина без."""
-    value = (value or "").strip().lstrip("@")
-    return f"@{value}" if value else ""
+    """Нікнейми в базі записані по-різному — половина з '@', половина без.
+
+    Канонічна форма — БЕЗ '@': так значення однакове з тим, що лежить у
+    Firestore (`telegramUsername`), тож синк не бачить вічної розбіжності,
+    і так його зручніше копіювати в пошук Telegram.
+    """
+    return (value or "").strip().lstrip("@")
 
 
 def _as_date(value: Any) -> str | None:
