@@ -233,6 +233,24 @@ async def process_vision(
         clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.IGNORECASE)
         result = json.loads(clean_json)
 
+        # Зберігаємо ВСЮ відповідь моделі одразу, ще до гілок прийняти/
+        # відхилити/заблокувати. Раніше aiInfo писався лише в гілці успіху —
+        # якщо документ блокувався (напр. has_russian_markers), зчитані
+        # ПІБ/ДН/тип/впевненість зникали безслідно. Реальний кейс: студента
+        # заблокувало через згадку РФ у свідоцтві про народження батька,
+        # хоча сам студент — українець; куратор вручну розблокував (force_stage),
+        # але жодного сліду скану в профілі не лишилось (02.09.2026).
+        ai_info = {
+            "docType": result.get("doc_type") or "unknown",
+            "firstName": result.get("doc_first_name"),
+            "lastName": result.get("doc_last_name"),
+            "birthDate": result.get("doc_dob"),
+            "confidence": result.get("confidence"),
+        }
+        await firestore_client.collection('Svitlo').document(doc_id).update({
+            "aiInfo": ai_info,
+        })
+
         # Якщо виявлено російські маркери
         if result.get("has_russian_markers"):
             # Кладемо ВСЮ відповідь моделі, а не самий doc_type. Це рішення
@@ -275,17 +293,6 @@ async def process_vision(
         # --- Маршрутизація успішного українського документа ---
         student_data = student['data']
 
-        ai_info = {
-            "docType": result.get("doc_type", "unknown"),
-            "firstName": result.get("doc_first_name"),
-            "lastName": result.get("doc_last_name"),
-            "birthDate": result.get("doc_dob"),
-            "confidence": confidence,
-        }
-
-        await firestore_client.collection('Svitlo').document(doc_id).update({
-            "aiInfo": ai_info,
-        })
         await db.update_crm_stage(doc_id, "admin_review")
         await db.set_user_fsm_state(user_id, "Registration:admin_review")
         # Розгляд заявок — у Solar Panel, тож єдиний проактивний сигнал
