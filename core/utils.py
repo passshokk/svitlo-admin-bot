@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 import html
 import os
 from zoneinfo import ZoneInfo
@@ -22,6 +22,41 @@ async def step_answer(target: Message, text: str, **kwargs) -> Message:
 # ====================================================================================
 # region Format & Check
 # ====================================================================================
+
+def calculate_age(birth_date, on_date: date | None = None) -> int | None:
+    """Повний вік у роках на дату `on_date` (дефолт — сьогодні).
+
+    Приймає Firestore Timestamp / `datetime` / `date` / рядок ISO
+    (`YYYY-MM-DD` або довший). Час і таймзону ігноруємо навмисно: ДН у базі
+    лежить на 12:00 UTC, і будь-яке приведення до локального часу лише зсувало б
+    день народження на добу. Повертає None, якщо дату не розпарсити — щоб
+    викликач сам вирішив, що робити з такими записами, а не отримав 0 років.
+    """
+    if not birth_date:
+        return None
+
+    born: date | None = None
+    if isinstance(birth_date, datetime):
+        born = birth_date.date()
+    elif isinstance(birth_date, date):
+        born = birth_date
+    elif isinstance(birth_date, str):
+        try:
+            born = date.fromisoformat(birth_date[:10])
+        except ValueError:
+            return None
+    else:
+        strftime = getattr(birth_date, "strftime", None)  # Firestore Timestamp тощо
+        if not strftime:
+            return None
+        try:
+            born = date.fromisoformat(strftime("%Y-%m-%d"))
+        except ValueError:
+            return None
+
+    today = on_date or date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
 
 def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""

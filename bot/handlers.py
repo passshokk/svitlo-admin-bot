@@ -760,7 +760,7 @@ async def process_email_input(message: Message, state: FSMContext):
         
     try:
         invite = await message.bot.create_chat_invite_link(
-            chat_id=int(target_chat_id), member_limit=1, expire_date=timedelta(days=1)
+            chat_id=int(target_chat_id), member_limit=1
         )
         await db.grant_access_to_student(student['id'], user_id)
 

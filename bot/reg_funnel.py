@@ -3,7 +3,12 @@ from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 import asyncio
 import re
 from datetime import datetime, timezone
@@ -354,10 +359,9 @@ async def process_dob(message: Message, state: FSMContext):
     try:
         # Валідація дати та розрахунок вікової групи
         dob_obj = datetime.strptime(dob_str, "%d.%m.%Y")
-        today = datetime.now()
-        age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
-        
-        if not (10 <= age <= 18):
+        age = ut.calculate_age(dob_obj)
+
+        if age is None or not (10 <= age <= 18):
             await ut.step_answer(message, "⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             return
             
@@ -931,17 +935,36 @@ async def process_field_edit(message: Message, state: FSMContext):
 # region INTERLUDE #1
 # ===============================================================
 
+# Тексти TelegramBadRequest, які для edit_text означають "повідомлення вже в
+# потрібному стані або зникло" — це не помилка логіки, а гонка апдейтів чи
+# подвійний тап, і кидати їх вище сенсу немає.
+_BENIGN_EDIT_ERRORS = (
+    "message is not modified",
+    "message to edit not found",
+    "message can't be edited",
+    "query is too old",
+)
+
 async def _safe_edit_text(message: Message, text: str, **kwargs) -> Message | None:
-    """edit_text з ігноруванням "message is not modified": на квіз-кнопках
-    подвійний тап (або повторна доставка callback-апдейту від Telegram) легко
-    призводить до двох паралельних викликів, які редагують повідомлення в
-    той самий контент — другий з них Telegram відхиляє саме цією помилкою"""
+    """edit_text з ігноруванням доброякісних збоїв Telegram:
+
+    * "message is not modified" / "message to edit not found" / "message can't
+      be edited" — на квіз-кнопках подвійний тап (або повторна доставка
+      callback-апдейту від Telegram) призводить до двох паралельних викликів,
+      які редагують повідомлення в той самий контент / вже видалене повідомлення;
+    * TelegramNetworkError / TelegramRetryAfter / TelegramServerError —
+      тимчасовий збій мережі, флуд-ліміт або 5xx на повільному контейнері
+      (холодний старт Cloud Run). Основна робота хендлера (запис у Firestore,
+      зміна FSM-стану) вже виконана до цього виклику, тож зірване косметичне
+      редагування не повинно валити весь апдейт."""
     try:
         return await message.edit_text(text, **kwargs)
     except TelegramBadRequest as e:
-        if "message is not modified" in str(e):
+        if any(s in str(e).lower() for s in _BENIGN_EDIT_ERRORS):
             return None
         raise
+    except (TelegramNetworkError, TelegramRetryAfter, TelegramServerError):
+        return None
 
 async def _finalize_personal_data(message: Message, state: FSMContext):
     """Допоміжна функція: зберігає зібраний FSM-словник у Firestore та переводить на етап правил"""
@@ -1105,10 +1128,16 @@ async def process_invalid_registration_input(message: Message, state: FSMContext
 # --- 2. Інтерцептор застарілих колбеків ---
 @reg_router.callback_query(StateFilter(Registration), ~StateFilter(Registration.waiting_email))
 async def process_stale_callbacks(callback: CallbackQuery, state: FSMContext):
-    await callback.answer(
-        "Ця кнопка застаріла або неактивна на даному етапі реєстрації. Продовжуй ввід у чаті або скористайся /help",
-        show_alert=True
-    )
+    try:
+        await callback.answer(
+            "Ця кнопка застаріла або неактивна на даному етапі реєстрації. Продовжуй ввід у чаті або скористайся /help",
+            show_alert=True
+        )
+    except TelegramBadRequest:
+        # Сам callback_query протух (query is too old / query ID is invalid),
+        # поки апдейт стояв у черзі під час холодного старту — відповідати вже
+        # нема на що, і це не помилка.
+        pass
 
 # endregion =====================================================
 # region RESUME PROMPT

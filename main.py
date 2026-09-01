@@ -4,6 +4,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, Header, HTTPException
 from aiogram import types
 from aiogram.types import ErrorEvent
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+    TelegramEntityTooLarge,
+)
 
 from core.bot_init import bot, dp, WEBHOOK_SECRET
 from bot.handlers import tg_router
@@ -32,11 +39,35 @@ dp.message.outer_middleware(TicketConflictNoticeMiddleware())
 dp.include_router(tg_router)
 
 
+def _is_transient_telegram_error(exc: BaseException) -> bool:
+    """Транзієнтні квірки Telegram API, а не баги логіки бота: мережеві
+    таймаути, флуд-ліміти, 5xx від Telegram і "протухлий" callback_query, що
+    відстояв у черзі під час холодного старту контейнера. Такими глобальний
+    хендлер не повинен ні спамити адмінчат, ні лякати користувача.
+    TelegramEntityTooLarge (спроба надіслати завеликий файл) — підклас
+    TelegramNetworkError, але це стала помилка, тож її не глушимо."""
+    if isinstance(exc, TelegramEntityTooLarge):
+        return False
+    if isinstance(exc, (TelegramNetworkError, TelegramRetryAfter, TelegramServerError)):
+        return True
+    if isinstance(exc, TelegramBadRequest) and "query is too old" in str(exc).lower():
+        return True
+    return False
+
+
 @dp.errors()
 async def handle_unexpected_error(event: ErrorEvent) -> bool:
     """Останній рубіж: якщо хендлер впав з необробленим виключенням (напр. тимчасовий збій Firestore),
     юзер все одно отримує відповідь замість мовчазного зависання посеред розмови/анкети."""
     exc = event.exception
+
+    # Транзієнтний збій Telegram API — тихо логуємо й виходимо: адмінам туди
+    # дивитись нема на що, а користувачу повторювати теж (основна робота
+    # хендлера зазвичай уже завершена до зірваного виклику).
+    if _is_transient_telegram_error(exc):
+        logging.warning("Transient Telegram API error, suppressed: %r", exc)
+        return True
+
     logging.error("Unhandled update error", exc_info=(type(exc), exc, exc.__traceback__))
     await report_error(exc, context="Telegram update handler")
 

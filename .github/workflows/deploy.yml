@@ -36,3 +36,28 @@ jobs:
         # список env vars на кожному деплої, тому будь-яка змінна, додана
         # вручну через `gcloud run services update` (напр. ADMIN_PANEL_SECRET),
         # мовчки зникала б наступним же пушем і клала сервіс при старті.
+
+    # Cron-дайджест "N заявок чекає розгляду в Solar Panel" -> /tasks/admin_review_digest.
+    # Крок ідемпотентний: create падає з ALREADY_EXISTS на повторних деплоях,
+    # тоді update синхронізує розклад/URL. continue-on-error: до першого разу,
+    # поки деплойному сервіс-акаунту (GCP_SA_KEY) не видадуть roles/cloudscheduler.admin
+    # (і, за потреби, право ввімкнути cloudscheduler.googleapis.com), крок
+    # світитиметься попередженням, але не валить деплой Cloud Run.
+    - name: Ensure Cloud Scheduler digest job
+      continue-on-error: true
+      run: |
+        gcloud services enable cloudscheduler.googleapis.com --quiet || true
+        gcloud scheduler jobs create http admin-review-digest \
+          --location=europe-west3 \
+          --schedule="0 9,21 * * *" \
+          --time-zone="Europe/Kyiv" \
+          --uri="${{ secrets.SERVICE_URL }}/tasks/admin_review_digest" \
+          --http-method=POST \
+          --attempt-deadline=60s \
+        || gcloud scheduler jobs update http admin-review-digest \
+          --location=europe-west3 \
+          --schedule="0 9,21 * * *" \
+          --time-zone="Europe/Kyiv" \
+          --uri="${{ secrets.SERVICE_URL }}/tasks/admin_review_digest" \
+          --http-method=POST \
+          --attempt-deadline=60s

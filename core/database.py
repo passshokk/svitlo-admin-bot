@@ -393,22 +393,6 @@ async def set_term_start_date(value: str) -> None:
     )
 
 
-# Коли востаннє надсилали дайджест "N заявок чекає розгляду" в ADMIN_GROUP_ID.
-# Без цього кілька заявок, що дійшли admin_review близько одна до одної,
-# кожна планують свою власну відкладену перевірку — і без дедуплікації по
-# часу вони надіслали б кілька майже однакових повідомлень поспіль.
-async def get_last_admin_digest_at():
-    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
-    data = doc.to_dict() if doc.exists else {}
-    return data.get("lastAdminDigestAt")
-
-
-async def set_last_admin_digest_at(at) -> None:
-    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"lastAdminDigestAt": at}, merge=True
-    )
-
-
 async def _get_testers_map() -> dict[str, str | None]:
     """Повертає {str(tg_id): username} з поля testers у Config/bot_settings (порожній dict, якщо поля ще нема)."""
     doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()

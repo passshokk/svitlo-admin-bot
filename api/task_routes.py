@@ -13,7 +13,6 @@ from core.utils import export_to_notion
 from core.constants import REMINDER_1_MSG, REMINDER_2_MSG, LEAD_WELCOME_MSG
 from bot import keyboards as kb
 from bot.reg_funnel import render_registration_prompt
-from api.task_manager import enqueue_task
 
 tasks_router = APIRouter(prefix="/tasks")
 
@@ -98,37 +97,14 @@ async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
 # Розгляд заявок повністю переїхав у Solar Panel — ADMIN_GROUP_ID більше не
 # отримує саму заявку з кнопками (webapp_routes.py), тож без ЖОДНОГО
 # проактивного сигналу куратор дізнався б, що є нова заявка, лише зайшовши
-# в панель самостійно. Замість Cloud Scheduler (не увімкнений на проєкті)
-# використовуємо той самий Cloud Tasks — кожна нова заявка планує ОДНУ
-# відкладену перевірку через ADMIN_REVIEW_DIGEST_DELAY_SECONDS.
-ADMIN_REVIEW_DIGEST_DELAY_SECONDS = 2 * 60 * 60  # 2 години
-# Не частіше ніж раз на цей інтервал: якщо кілька заявок дійшли admin_review
-# близько одна до одної, кожна планує свою перевірку — без цього ліміту вони
-# надіслали б кілька майже однакових дайджестів поспіль.
-ADMIN_REVIEW_DIGEST_MIN_INTERVAL_SECONDS = 2 * 60 * 60
-
-
-async def schedule_admin_review_digest() -> None:
-    """Планує одну відкладену перевірку черги admin_review. Викликається
-    з webapp_routes.py щоразу, коли заявка доходить до цієї стадії."""
-    try:
-        await enqueue_task("/tasks/admin_review_digest", {}, delay_seconds=ADMIN_REVIEW_DIGEST_DELAY_SECONDS)
-    except Exception as exc:
-        logging.error("Не вдалося запланувати дайджест admin_review: %s", exc)
-
-
+# в панель самостійно. Тому раз на 12 год цей ендпоінт смикає Cloud Scheduler
+# (job `admin-review-digest`, створюється у .github/workflows/deploy.yml), і
+# якщо в admin_review щось висить — куратор отримує один підсумок у чат.
 @tasks_router.post("/admin_review_digest")
 async def task_admin_review_digest(request: Request):
-    """Воркер Cloud Tasks: якщо в admin_review досі є заявки, старша за яких
-    чекає довше порогу — одне підсумкове повідомлення в ADMIN_GROUP_ID.
-
-    Поки беклог не порожній, планує собі ж наступну перевірку — інакше
-    заявка, що застрягла на довше за один інтервал, отримала б рівно ОДНЕ
-    нагадування і більше ніколи. Кілька заявок, що прийшли близько одна до
-    одної, кожна планують свій власний ланцюжок — це нешкідливо (Cloud Tasks
-    дешеві, `lastAdminDigestAt` все одно не дасть надіслати більш ніж одне
-    повідомлення на інтервал), просто трохи надлишково.
-    """
+    """Cron-воркер (Cloud Scheduler, кожні 12 год): якщо в admin_review є
+    заявки — одне підсумкове повідомлення в ADMIN_GROUP_ID зі станом беклогу.
+    Порожня черга — тихий вихід."""
     try:
         docs = [
             doc.to_dict()
@@ -137,28 +113,16 @@ async def task_admin_review_digest(request: Request):
             .stream()
         ]
         if not docs:
-            # Беклог порожній — природна умова зупинки ланцюжка, нічого не переплановуємо.
             return Response(status_code=200)
 
         now = datetime.now(timezone.utc)
-
-        def _updated_at(d: dict):
-            ts = d.get("stageUpdatedAt")
-            return ts if ts else now
-
-        oldest_age = now - _updated_at(min(docs, key=_updated_at))
-        if oldest_age.total_seconds() >= ADMIN_REVIEW_DIGEST_DELAY_SECONDS:
-            last_sent = await db.get_last_admin_digest_at()
-            if not last_sent or (now - last_sent).total_seconds() >= ADMIN_REVIEW_DIGEST_MIN_INTERVAL_SECONDS:
-                hours = int(oldest_age.total_seconds() // 3600)
-                await bot.send_message(
-                    cfg.ADMIN_GROUP_ID,
-                    f"📋 <b>{len(docs)}</b> заявок(и) чекає розгляду в Solar Panel.\n"
-                    f"Найстаріша — {hours} год.",
-                )
-                await db.set_last_admin_digest_at(now)
-
-        await enqueue_task("/tasks/admin_review_digest", {}, delay_seconds=ADMIN_REVIEW_DIGEST_MIN_INTERVAL_SECONDS)
+        oldest_ts = min((d.get("stageUpdatedAt") or now) for d in docs)
+        hours = int((now - oldest_ts).total_seconds() // 3600)
+        await bot.send_message(
+            cfg.ADMIN_GROUP_ID,
+            f"📋 <b>{len(docs)}</b> заявок(и) чекає розгляду в Solar Panel.\n"
+            f"Найстаріша — {hours} год.",
+        )
         return Response(status_code=200)
     except Exception as exc:
         logging.error("Admin review digest error: %s", exc)
