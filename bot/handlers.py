@@ -21,6 +21,7 @@ from core import utils as ut
 from core import config as cfg
 from api.task_manager import enqueue_task
 from bot.reg_funnel import reg_router, render_registration_prompt
+from bot.age_group import age_group_router
 from bot.filters import ActiveTicketFilter, IsTesterFilter
 from core.bot_init import dp
 
@@ -51,6 +52,13 @@ tg_router.include_router(tester_router)
 
 # 2. Воронка реєстрації - поки на тесті
 tg_router.include_router(reg_router)
+
+# 2.5 Вікове переведення: кнопка «перейти в чат старшої групи» під розсилкою
+# core/age_promotion.py. Раніше private_router — його auth-middleware могла б
+# зʼїсти апдейт до того, як він дійде сюди. Фільтр тут вузький (приват +
+# callback_data "agegrp:"), тож раннє місце безпечне; auth не потрібен —
+# хендлер сам звіряє telegramId з карткою в Firestore.
+tg_router.include_router(age_group_router)
 
 # 3. ПРИВАТНИЙ: Лише авторизовані студенти
 tg_router.include_router(private_router)

@@ -1,6 +1,6 @@
 # task_routes.py
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from fastapi import APIRouter, Request, Response
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -9,7 +9,7 @@ import core.config as cfg
 import core.schooltoday as schooltoday
 from core.bot_init import bot
 from core.error_reporting import report_error
-from core.utils import export_to_notion
+from core.utils import export_to_notion, calculate_age
 from core.constants import REMINDER_1_MSG, REMINDER_2_MSG, LEAD_WELCOME_MSG
 from bot import keyboards as kb
 from bot.reg_funnel import render_registration_prompt
@@ -102,27 +102,56 @@ async def _report_enroll_failure(doc_id: str, student: dict, reason: str,
 # якщо в admin_review щось висить — куратор отримує один підсумок у чат.
 @tasks_router.post("/admin_review_digest")
 async def task_admin_review_digest(request: Request):
-    """Cron-воркер (Cloud Scheduler, кожні 12 год): якщо в admin_review є
-    заявки — одне підсумкове повідомлення в ADMIN_GROUP_ID зі станом беклогу.
-    Порожня черга — тихий вихід."""
+    """Cron-воркер (Cloud Scheduler, кожні 12 год): підсумок у ADMIN_GROUP_ID.
+
+    Два приводи написати:
+      * у admin_review висять заявки на розгляд;
+      * у молодшій групі є зараховані учні, яким уже виповнилось 14 —
+        нагадування зробити вікове переведення (Solar Panel → Синхронізація).
+        Окремого крона під це немає свідомо: подія рідкісна, а список
+        кандидатів усе одно треба звірити очима перед запуском.
+    Жодного приводу — тихий вихід."""
     try:
-        docs = [
+        review_docs = [
             doc.to_dict()
             async for doc in db.db.collection("Svitlo")
             .where(filter=FieldFilter("stage", "==", "admin_review"))
             .stream()
         ]
-        if not docs:
+
+        today = date.today()
+        pending_promotion = 0
+        async for doc in (
+            db.db.collection("Svitlo")
+            .where(filter=FieldFilter("ageGroup", "==", "younger"))
+            .stream()
+        ):
+            data = doc.to_dict() or {}
+            if data.get("stage") != "student":
+                continue
+            age = calculate_age(data.get("birthDate"), today)
+            if age is not None and age >= 14:
+                pending_promotion += 1
+
+        if not review_docs and not pending_promotion:
             return Response(status_code=200)
 
-        now = datetime.now(timezone.utc)
-        oldest_ts = min((d.get("stageUpdatedAt") or now) for d in docs)
-        hours = int((now - oldest_ts).total_seconds() // 3600)
-        await bot.send_message(
-            cfg.ADMIN_GROUP_ID,
-            f"📋 <b>{len(docs)}</b> заявок(и) чекає розгляду в Solar Panel.\n"
-            f"Найстаріша — {hours} год.",
-        )
+        blocks = []
+        if review_docs:
+            now = datetime.now(timezone.utc)
+            oldest_ts = min((d.get("stageUpdatedAt") or now) for d in review_docs)
+            hours = int((now - oldest_ts).total_seconds() // 3600)
+            blocks.append(
+                f"📋 <b>{len(review_docs)}</b> заявок(и) чекає розгляду в Solar Panel.\n"
+                f"Найстаріша — {hours} год."
+            )
+        if pending_promotion:
+            blocks.append(
+                f"🎂 <b>{pending_promotion}</b> учнів у молодшій групі вже мають 14+ — "
+                f"час на вікове переведення (Solar Panel → Синхронізація)."
+            )
+
+        await bot.send_message(cfg.ADMIN_GROUP_ID, "\n\n".join(blocks))
         return Response(status_code=200)
     except Exception as exc:
         logging.error("Admin review digest error: %s", exc)

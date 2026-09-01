@@ -18,7 +18,7 @@ from contextlib import redirect_stdout
 from fastapi import APIRouter, Header, HTTPException
 
 from core import schooltoday
-from core import drift_ops, sync_ops
+from core import age_promotion, drift_ops, sync_ops
 from core.error_reporting import report_error
 
 ADMIN_PANEL_SECRET = os.getenv("ADMIN_PANEL_SECRET")
@@ -70,3 +70,26 @@ async def sync_preview(x_admin_secret: str | None = Header(default=None)):
 async def sync_apply(x_admin_secret: str | None = Header(default=None)):
     _check_secret(x_admin_secret)
     return await _run_captured(lambda: sync_ops.main(["--apply"]), context="sync_apply")
+
+
+# --- Вікове переведення (younger -> older) ---------------------------------
+# Той самий патерн, що й /sync/*: панель кличе з X-Admin-Secret, бот ганяє
+# логіку core/age_promotion.py і віддає її stdout текстом. apply шле учням
+# повідомлення й тягне за собою повний синк у ШС — тож може йти кілька хвилин
+# (панель тримає таймаут 280с, core/sync_tools.py).
+
+@admin_router.post("/age-promotion/preview")
+async def age_promotion_preview(x_admin_secret: str | None = Header(default=None)):
+    _check_secret(x_admin_secret)
+    return await _run_captured(
+        lambda: age_promotion.run(apply=False), context="age_promotion_preview"
+    )
+
+
+@admin_router.post("/age-promotion/apply")
+async def age_promotion_apply(x_admin_secret: str | None = Header(default=None)):
+    _check_secret(x_admin_secret)
+    return await _run_captured(
+        lambda: age_promotion.run(apply=True, notify=True, trigger_sync=True),
+        context="age_promotion_apply",
+    )
