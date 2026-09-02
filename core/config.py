@@ -15,7 +15,7 @@ ADMIN_GROUP_ID = -1003951532483
 # Тестувальники зберігаються в Firestore: Config/bot_settings.testers (core.database.get_tester_ids/get_testers/add_tester_id/remove_tester_id)
 OWNER_ID = 1125108435  # єдиний, кому доступна /testers
 
-MAIN_CURATOR_USERNAME = "@passshokk"
+MAIN_CURATOR_USERNAME = "@martamalynowska"
 
 # ----------------------------------
 
