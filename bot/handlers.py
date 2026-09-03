@@ -781,8 +781,7 @@ async def process_email_input(message: Message, state: FSMContext):
         name = str(raw_name).strip().title()
         await message.answer(
             f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n"
-            f"<b>Твоє одноразове посилання: {invite.invite_link}</b>\n"
-            "Зауваж, воно діє лише 1 день.",
+            f"<b>Твоє одноразове посилання: {invite.invite_link}</b>",
             parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
         )
         

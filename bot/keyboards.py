@@ -19,17 +19,6 @@ def get_start_menu() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_welcome_chat_kb(invite_link: str) -> InlineKeyboardMarkup:
-    """Кнопка входу в чат групи у вітальному повідомленні після схвалення.
-
-    Саме URL-кнопка, а не callback: до цього тут стояло меню з «Отримати
-    доступ», яке вело у флоу синхронізації для СТАРИХ студентів і просило
-    ввести пошту ще раз — одразу після того, як людина щойно її вказала в анкеті.
-    """
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Приєднатись до чату групи", url=invite_link)]
-    ])
-
 
 def get_guest_start_menu(registration_open: bool = True) -> InlineKeyboardMarkup:
     """Стартове меню для неідентифікованих користувачів (лідів).
