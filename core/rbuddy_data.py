@@ -17,7 +17,7 @@ SCHEDULE = {
         {"time": "18:00", "name": "Nastya Karagioz", "url": "https://t.me/+kRFdrHKW5cs4NDMy"},
         {"time": "18:30", "name": "Anna Bahmutova", "url": "https://t.me/+Mo2wKrkYeKZhYzky"},
         {"time": "18:30", "name": "Marta Domchenko", "url": "https://t.me/+vtCjHY0SA0JlM2Ey"},
-        {"time": "19:00", "name": "Sasha Vasylenko", "url": "https://t.me/+uWioiyJz-95jMGJi"},
+        {"time": "19:00", "name": "Sasha Vasylenko", "url": "https://t.me/+-IlF-kP5fY1lZjQy"},
         {"time": "19:00", "name": "Lisa Chechel", "url": None},
         {"time": "19:00", "name": "Albina Peresada/Sofia Romanchuk", "url": None},
         {"time": "19:30", "name": "Alina Shevchuk", "url": "https://t.me/+P3TEo3HtGCBhYWVi"},
