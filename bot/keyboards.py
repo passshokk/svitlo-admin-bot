@@ -175,13 +175,12 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="🎓 Your Svitlo Profile", callback_data="my_profile")
     builder.button(text="🏰 Join House Group", callback_data="house")
     builder.button(text="📚 Reading Buddy Groups", callback_data="rb_day:0")
-    builder.button(text="👥 Connect with Prefects", callback_data="pref_group")
     builder.button(text="📱 Socials", callback_data="socials")
     builder.button(text="🆘 FAQ", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
     builder.button(text="🌟 Svitlo Help Centre", callback_data="support_menu")
     builder.button(text="💌 Mental Support", url="https://forms.gle/MGyGav2krG1x7x8DA")
-        
-    builder.adjust(1, 1, 1, 1, 2, 1, 1)
+
+    builder.adjust(1, 1, 1, 2, 1, 1)
     return builder.as_markup()
 
 def get_socials_kb() -> InlineKeyboardMarkup:

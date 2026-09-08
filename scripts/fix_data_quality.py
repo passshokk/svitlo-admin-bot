@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv()
 
 from core.database import db  # noqa: E402
-from scripts.audit_data_quality import classify_parent_name  # noqa: E402
+from scripts.audit_data_quality import canonical_tg_username, classify_parent_name  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -134,8 +134,9 @@ def fix_mechanical(doc: dict) -> dict:
             patch[field] = value
 
     nickname = doc.get("telegramUsername") or ""
-    if nickname and not nickname.startswith("@"):
-        patch["telegramUsername"] = "@" + nickname.lstrip("@")
+    canonical = canonical_tg_username(nickname)
+    if nickname and canonical != nickname:
+        patch["telegramUsername"] = canonical
 
     for field in ("city", "country"):
         original = doc.get(field) or ""

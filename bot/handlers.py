@@ -1,20 +1,18 @@
 # bot/handlers.py
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
 from aiogram.filters import Command, StateFilter
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 import re
-from datetime import timedelta, datetime
-from zoneinfo import ZoneInfo
 import logging
+from datetime import timedelta
 
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
 from bot.states import TicketFSM, Registration
 from core import rbuddy_data as rb
-from core import prefect_data as pr
 from core import database as db
 from bot import keyboards as kb
 from core import utils as ut
@@ -23,7 +21,8 @@ from api.task_manager import enqueue_task
 from bot.reg_funnel import reg_router, render_registration_prompt
 from bot.age_group import age_group_router
 from bot.filters import ActiveTicketFilter, IsTesterFilter
-from core.bot_init import dp
+from core.bot_init import dp, bot
+from core.error_reporting import report_error
 
 # region ROUTER =================================================
 
@@ -177,10 +176,6 @@ async def cmd_menu(message: Message, state: FSMContext):
         reply_markup=kb.get_main_menu()
     )
 
-@public_router.message(Command("prefect"))
-async def handle_prefect_check(message: Message):
-    await message.answer("Ну ти олдятіна))")
-
 # endregion =====================================================
 # region CALLBACKS
 # ===============================================================
@@ -228,19 +223,19 @@ async def clbck_profile(callback: CallbackQuery):
     text = ut.get_profile_text(student['data'])
     await callback.message.edit_text(text, reply_markup=kb.get_back_to_menu_kb())
 
+# Статуси ChatMember, які означають «студент фактично в чаті»
+_HOUSE_PRESENT_STATUSES = {"creator", "administrator", "member", "restricted"}
+
 @private_router.callback_query(F.data == "house")
 async def clbck_house_smart_access(callback: CallbackQuery):
     await callback.answer()
     student = student_ctx.get()
     data = student['data']
-    house_name = data.get("house")
-    
+    user_id = callback.from_user.id
+    house_name = (data.get("house") or "").strip()
+
     if not house_name or house_name == "Newbie":
         await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
-        return
-
-    if data.get("hasHouseAccess", False):
-        await callback.message.edit_text("⚠️ <b>Доступ до групи вже було надано.</b>\nЯкщо група загубилась, напиши хаус-кураторці", reply_markup=kb.get_sasha_curator_keyboard())
         return
 
     target_chat_id = cfg.HOUSE_CHATS.get(house_name)
@@ -248,26 +243,53 @@ async def clbck_house_smart_access(callback: CallbackQuery):
         await callback.message.edit_text(f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора.", reply_markup=kb.get_pasha_curator_keyboard())
         return
 
+    # Прапорець hasHouseAccess означає лише «лінк колись видавали» — не «студент у
+    # чаті». Тому звіряємось із фактичним членством: якщо студент справді всередині
+    # — нічого не робимо; якщо загубив лінк / вийшов / кікнули — видаємо новий.
+    # get_chat_member смикаємо тільки в цій гілці, щоб не робити зайвий виклик на першій видачі.
+    if data.get("hasHouseAccess", False):
+        try:
+            member = await bot.get_chat_member(target_chat_id, user_id)
+            if getattr(member, "status", None) in _HOUSE_PRESENT_STATUSES:
+                await callback.message.edit_text(
+                    "✅ <b>Ти вже в чаті свого Хауса.</b>\nЯкщо група загубилась, напиши хаус-кураторці",
+                    reply_markup=kb.get_sasha_curator_keyboard(),
+                )
+                return
+        except TelegramBadRequest as exc:
+            logging.warning(f"house: get_chat_member({target_chat_id}, {user_id}): {exc}")
+
     try:
-        invite = await callback.message.bot.create_chat_invite_link(
-            chat_id=target_chat_id, member_limit=1
+        invite = await bot.create_chat_invite_link(
+            target_chat_id,
+            member_limit=1,
+            expire_date=timedelta(days=2),
+            name=f"{house_name}:{student['id']}",
         )
-        
-        await db.grant_house_access(student['id'])
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logging.error(f"house: інвайт для {student['id']} ({house_name}) не створився: {exc}")
+        await report_error(exc, context=f"house invite link ({student['id']}, {house_name})")
         await callback.message.edit_text(
-            f"🎉 Тобі надано доступ в <b>{house_name}</b>!\n\n"
-            f"Ось твоє персональне одноразове посилання:\n{invite.invite_link}", 
-            parse_mode="HTML"
+            "❌ Не вдалося створити посилання. Напиши хаус-кураторці ⬇️",
+            reply_markup=kb.get_pasha_curator_keyboard(),
         )
-        
-        await callback.message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
-        
-    except Exception as e:
-        await callback.message.edit_text(
-            "❌ Помилка при генерації посилання. Бот має бути адміном у групі.", 
-            reply_markup=kb.get_pasha_curator_keyboard()
-        )
-        print(f"Error generating house link: {e}")
+        return
+
+    text = (
+        f"🎉 Тобі надано доступ в <b>{house_name}</b>!\n\n"
+        f"Персональне одноразове посилання (дійсне 48 годин):\n{invite.invite_link}"
+    )
+    try:
+        await callback.message.edit_text(text)
+    except TelegramBadRequest:
+        # повідомлення застаре / незмінне — надсилаємо лінк окремим меседжем,
+        # головне щоб студент його отримав
+        await callback.message.answer(text)
+
+    await callback.message.answer("Повертаємось у SvitloMenu:", reply_markup=kb.get_main_menu())
+
+    # Прапорець ставимо ОСТАННІМ — тільки коли лінк реально доставлено.
+    await db.grant_house_access(student['id'])
 
 @public_router.callback_query(F.data == "socials")
 async def show_socials(callback: CallbackQuery):
@@ -476,76 +498,6 @@ async def handle_missing_url(callback: CallbackQuery):
         text = "Посилання на цю групу ще не додано"
 
     await callback.answer(text, show_alert=True)
-
-# endregion =====================================================
-# region CALLBACKS - PREF
-# ===============================================================
-
-@private_router.callback_query(F.data == "pref_group")
-async def show_prefect_schedule_auto(callback: CallbackQuery):
-    await callback.answer()
-    student = student_ctx.get()
-    group = student['data'].get("ageGroup")
-    group_name = "старшої" if group == "older" else "молодшої"
-    
-    today_index = datetime.now(ZoneInfo("Europe/Kyiv")).weekday()
-    day_name = pr.DAYS_INTEXT[int(today_index)]
-
-    text = f"<b>🎓 Розклад уроків {group_name} групи на {day_name}.</b>\nОбирай предмет, щоб сконтактувати з його префектом:"
-    keyboard = pr.get_prefects_day_keyboard(int(today_index), group)
-    await callback.message.edit_text(text, reply_markup=keyboard)
-
-@private_router.callback_query(F.data.startswith("oldpref_day:") | F.data.startswith("ypref_day:"))
-async def switch_prefect_day(callback: CallbackQuery):
-    await callback.answer()
-
-    action, day_index = callback.data.split(":")
-    day_name = pr.DAYS_INTEXT[int(day_index)]
-    group = "older" if action == "oldpref_day" else "younger"
-    group_name = "старшої" if group == "older" else "молодшої"
-
-    text = f"<b>🎓 Розклад уроків {group_name} групи на {day_name}.</b>\nОбирай предмет, щоб сконтактувати з його префектом:"
-    keyboard = pr.get_prefects_day_keyboard(int(day_index), group)
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard)
-    except Exception:
-        pass
-    
-@private_router.callback_query(F.data.startswith("oldpref_sel:") | F.data.startswith("ypref_sel:"))
-async def show_prefect_info(callback: CallbackQuery):
-    await callback.answer()
-    action, day_idx, lesson_idx = callback.data.split(":")
-    day_name = pr.DAYS_UA[int(day_idx)]
-
-    if action == "oldpref_sel": group = "older"
-    elif action == "ypref_sel": group = "younger"
-    TGT_SCH = pr.SCHEDULE_MAPPING[group]["schedule"]
-    data = TGT_SCH[day_name][int(lesson_idx)]
-    
-    if data['username']:
-        text = (
-            f"<b>Контакт префекта для уроку «{data['lesson_full']}»:</b>\n"
-            f"👤 {data['prefect']} — {data['username']}\n\n"
-            f"ℹ️ Напиши префекту, щоб попередити про відсутність або якщо є питання щодо уроку"
-        )
-    elif data['prefect']:
-        text = (
-            f"<b>Префект уроку «{data['lesson_full']}»:</b>\n"
-            f"👤 {data['prefect']}\n\n"
-            f"⚠️ Тг-нікнейм не надано, повідом про відсутність у групі."
-        )
-    else:
-        text = (
-            f"<b>Урок: «{data['lesson_full']}»</b>\n"
-            f"⚠️ Наразі ця позиція префекта відкрита. Повідом про відсутність у групі."
-        )
-    
-    back_action = pr.SCHEDULE_MAPPING[group]["cb_data"]
-    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад до розкладу", callback_data=f"{back_action}:{day_idx}")]
-    ])
-    
-    await callback.message.edit_text(text, reply_markup=back_keyboard)
 
 # endregion =====================================================
 # region FSM (Messages)

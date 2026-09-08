@@ -4,10 +4,10 @@ GROUPS_MAPPING = {
 }
 
 HOUSE_CHATS = {
-    "Caledonia": -1002434733152,
-    "Hibernia": -1002451381823,
-    "Cambria": -1002432858864,
-    "Albion": -1002378397420,
+    "Caledonia": -3904151695,
+    "Hibernia": -4498108891,
+    "Cambria": -3853175079,
+    "Albion": -4459512165,
 }
 
 CURATOR_GROUP_ID = -1004393635348
@@ -35,8 +35,7 @@ ROLE_MAP = {
     "scl": "🏛️ Student Council member",
     "buddy": "🤝 Buddy",
     "prefect": "📝 Prefect",
-    "student": "🎓 Student",
-    "boss": "🛐 о Паша мой павєлітєль",
+    "student": "🎓 Student"
 }
 
 # LEGACY: раніше всі тікети категорії летіли в один спільний thread. Тепер кожен тікет

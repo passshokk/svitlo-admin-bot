@@ -67,6 +67,17 @@ GIVEN_NAMES = {
 }
 
 
+def canonical_tg_username(value: str | None) -> str:
+    """Канонічна форма `telegramUsername` у Firestore: без провідного '@', без
+    пробілів по краях, у нижньому регістрі.
+
+    '@' — це відображення, а не частина ніка; Telegram API віддає username без
+    нього, і саме так його пише бот. Регістр зводимо, бо нік у Telegram
+    регістронезалежний, тож 'Ivan' і 'ivan' — один і той самий обліковий запис.
+    """
+    return (value or "").strip().lstrip("@").lower()
+
+
 def issues_for_name(value: str, field: str, latin_expected: bool) -> list[str]:
     found = []
     if value != value.strip():
@@ -129,6 +140,11 @@ def _translit(word: str) -> str:
 
 LATIN_GIVEN = {_translit(n) for n in GIVEN_NAMES} | LATIN_GIVEN_EXTRA
 
+
+# Стадії, на яких заявка ще проходить реєстрацію: порожні firstName/lastName/
+# email/ageGroup у них очікувані, а не дефект. Заповнені поля все одно
+# перевіряємо на регістр, пробіли тощо.
+INCOMPLETE_STAGES = ("lead", "personal_data")
 
 # Категорії, які ми свідомо прийняли й не вважаємо дефектом. Без цього списку
 # аудит показує 244 «проблеми», з яких справжніх чотири — і його перестають читати.
@@ -217,10 +233,18 @@ async def main():
 
     buckets: dict[str, list] = collections.defaultdict(list)
     confirmed_by_pupil: list[str] = []
+    in_progress: collections.Counter = collections.Counter()  # порожні поля в заявках, що ще реєструються
+    in_progress_docs: set[str] = set()
 
     for doc_id, d in docs:
+        incomplete = d.get("stage") in INCOMPLETE_STAGES
+
         for field, latin in (("firstName", True), ("lastName", True)):
             for issue in issues_for_name(d.get(field) or "", field, latin):
+                if incomplete and issue.endswith(": порожнє"):
+                    in_progress[issue] += 1
+                    in_progress_docs.add(doc_id)
+                    continue
                 buckets[issue].append((doc_id, repr(d.get(field))))
 
         for field in ("parentFirstName", "parentLastName"):
@@ -255,18 +279,23 @@ async def main():
             buckets["parentPhone: не канонічний E.164"].append((doc_id, repr(phone)))
 
         nick = d.get("telegramUsername") or ""
-        if nick and not nick.startswith("@"):
-            buckets["telegramUsername: без @"].append((doc_id, repr(nick)))
+        if nick and nick != canonical_tg_username(nick):
+            buckets["telegramUsername: не канонічний (@ або регістр)"].append((doc_id, repr(nick)))
 
         for field in ("city", "country"):
             val = d.get(field) or ""
             if val and val != val.strip().title():
                 buckets[f"{field}: регістр або пробіли"].append((doc_id, repr(val)))
 
-        if not d.get("ageGroup"):
-            buckets["ageGroup: порожній"].append((doc_id, ""))
-        if not d.get("email"):
-            buckets["email: порожній"].append((doc_id, ""))
+        for field in ("ageGroup", "email"):
+            if d.get(field):
+                continue
+            issue = f"{field}: порожній"
+            if incomplete:
+                in_progress[issue] += 1
+                in_progress_docs.add(doc_id)
+            else:
+                buckets[issue].append((doc_id, ""))
 
     defects = {k: v for k, v in buckets.items() if k not in ACCEPTED}
     accepted = {k: v for k, v in buckets.items() if k in ACCEPTED}
@@ -295,10 +324,21 @@ async def main():
         print(f"{len(confirmed_by_pupil):>5}  підтверджено збігом із прізвищем дитини")
         print("          порядок полів правильний, звірка автоматична")
 
+    if in_progress:
+        print("\n" + "=" * 74)
+        print("НЕ ДЕФЕКТ — ЗАЯВКА ЩЕ РЕЄСТРУЄТЬСЯ")
+        print("=" * 74)
+        print(f"stage у {INCOMPLETE_STAGES} — незаповнені поля тут очікувані")
+        for issue, count in sorted(in_progress.items(), key=lambda kv: -kv[1]):
+            print(f"{count:>5}  {issue}")
+
     print("\n" + "=" * 74)
     affected = {doc_id for items in defects.values() for doc_id, _ in items}
     print(f"Дефектів: {sum(len(v) for v in defects.values())} у {len(affected)} документах із {len(docs)}")
     print(f"Прийнятого: {sum(len(v) for v in accepted.values())}")
+    if in_progress_docs:
+        print(f"Пропущено як «ще реєструється»: {sum(in_progress.values())} "
+              f"у {len(in_progress_docs)} заявках")
     print("\nЯкщо категорія з'явилась у «дефектах» уперше — або це справжня проблема,")
     print("або її треба свідомо додати в ACCEPTED з поясненням чому.")
 
