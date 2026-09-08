@@ -31,8 +31,8 @@ TRUSTED_EMAIL_DOMAINS = {
 }
 
 ROLE_MAP = {
-    "itt": "💻 ITT member",
-    "scl": "🏛️ Student Council member",
+    "itt": "💻 IT team",
+    "scl": "🏛️ Student Council Member",
     "buddy": "🤝 Buddy",
     "prefect": "📝 Prefect",
     "student": "🎓 Student"
