@@ -3,13 +3,9 @@ from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import (
-    TelegramBadRequest,
-    TelegramNetworkError,
-    TelegramRetryAfter,
-    TelegramServerError,
-)
+from aiogram.exceptions import TelegramBadRequest
 import asyncio
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -160,7 +156,7 @@ async def process_reg_resume(callback: CallbackQuery, state: FSMContext):
         except TelegramBadRequest:
             pass
 
-    await callback.message.delete()
+    await ut.safe_delete(callback.message)
     await state.update_data(interruptMsgId=None)
 
 @reg_router.callback_query(F.data == "reg_restart")
@@ -182,7 +178,7 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
             pass
 
     await state.clear()
-    await callback.message.delete()
+    await ut.safe_delete(callback.message)
     await state.update_data(interruptMsgId=None)
     await callback.message.answer("Реєстрацію скасовано. Натисни /start, щоб розпочати знову", reply_markup=ReplyKeyboardRemove())
 
@@ -240,7 +236,7 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Registration.waiting_email)
     await state.update_data(emailFlowSource="guest_menu_auth_existing")
 
-    await callback.message.delete()
+    await ut.safe_delete(callback.message)
     await ut.step_answer(callback.message, "🔐 <b>Синхронізація акаунта</b>")
     await ut.step_answer(callback.message, "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 
@@ -258,8 +254,13 @@ async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
         # Нагадування тим, хто натиснув "Хочу зареєструватись", але не завершив заявку —
         # 24г і 48г від цього моменту. Кожен таск сам перевіряє актуальність при спрацюванні
         # (send_reminder у api/task_routes.py), тож нічого скасовувати тут не треба.
-        await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 1}, delay_seconds=24 * 3600)
-        await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 2}, delay_seconds=48 * 3600)
+        # best-effort: Cloud Tasks зрідка недоступний (503), і через це не варто
+        # валити створення ліда — нагадування другорядні.
+        try:
+            await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 1}, delay_seconds=24 * 3600)
+            await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 2}, delay_seconds=48 * 3600)
+        except Exception:
+            logging.exception("send_reminder enqueue failed for %s (лід створено, нагадування пропущено)", doc_id)
 
     await callback.message.edit_text(
         LEAD_WELCOME_MSG,
@@ -788,13 +789,13 @@ async def select_field_to_edit(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     
     if field == "cancel":
-        await callback.message.delete()
+        await ut.safe_delete(callback.message)
         return await _show_data_confirmation(callback.message, state)
 
     await state.update_data(editingField=field)
     await state.set_state(Registration.editing_field)
 
-    await callback.message.delete()
+    await ut.safe_delete(callback.message)
     text, kb_getter = EDIT_FIELD_PROMPTS[field]
     await ut.step_answer(callback.message, text, reply_markup=kb_getter() if kb_getter else None)
 
@@ -935,36 +936,9 @@ async def process_field_edit(message: Message, state: FSMContext):
 # region INTERLUDE #1
 # ===============================================================
 
-# Тексти TelegramBadRequest, які для edit_text означають "повідомлення вже в
-# потрібному стані або зникло" — це не помилка логіки, а гонка апдейтів чи
-# подвійний тап, і кидати їх вище сенсу немає.
-_BENIGN_EDIT_ERRORS = (
-    "message is not modified",
-    "message to edit not found",
-    "message can't be edited",
-    "query is too old",
-)
-
-async def _safe_edit_text(message: Message, text: str, **kwargs) -> Message | None:
-    """edit_text з ігноруванням доброякісних збоїв Telegram:
-
-    * "message is not modified" / "message to edit not found" / "message can't
-      be edited" — на квіз-кнопках подвійний тап (або повторна доставка
-      callback-апдейту від Telegram) призводить до двох паралельних викликів,
-      які редагують повідомлення в той самий контент / вже видалене повідомлення;
-    * TelegramNetworkError / TelegramRetryAfter / TelegramServerError —
-      тимчасовий збій мережі, флуд-ліміт або 5xx на повільному контейнері
-      (холодний старт Cloud Run). Основна робота хендлера (запис у Firestore,
-      зміна FSM-стану) вже виконана до цього виклику, тож зірване косметичне
-      редагування не повинно валити весь апдейт."""
-    try:
-        return await message.edit_text(text, **kwargs)
-    except TelegramBadRequest as e:
-        if any(s in str(e).lower() for s in _BENIGN_EDIT_ERRORS):
-            return None
-        raise
-    except (TelegramNetworkError, TelegramRetryAfter, TelegramServerError):
-        return None
+# Спільна реалізація в core.utils (той самий хелпер використовують handlers.py
+# і middleware.py). Локальний аліас лишаємо, щоб не чіпати десятки викликів.
+_safe_edit_text = ut.safe_edit_text
 
 async def _finalize_personal_data(message: Message, state: FSMContext):
     """Допоміжна функція: зберігає зібраний FSM-словник у Firestore та переводить на етап правил"""

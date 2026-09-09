@@ -235,12 +235,12 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     house_name = (data.get("house") or "").strip()
 
     if not house_name or house_name == "Newbie":
-        await callback.message.edit_text("🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
+        await ut.safe_edit_text(callback.message, "🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
         return
 
     target_chat_id = cfg.HOUSE_CHATS.get(house_name)
     if not target_chat_id:
-        await callback.message.edit_text(f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора.", reply_markup=kb.get_pasha_curator_keyboard())
+        await ut.safe_edit_text(callback.message, f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора.", reply_markup=kb.get_pasha_curator_keyboard())
         return
 
     # Прапорець hasHouseAccess означає лише «лінк колись видавали» — не «студент у
@@ -251,7 +251,8 @@ async def clbck_house_smart_access(callback: CallbackQuery):
         try:
             member = await bot.get_chat_member(target_chat_id, user_id)
             if getattr(member, "status", None) in _HOUSE_PRESENT_STATUSES:
-                await callback.message.edit_text(
+                await ut.safe_edit_text(
+                    callback.message,
                     "✅ <b>Ти вже в чаті свого Хауса.</b>\nЯкщо група загубилась, напиши хаус-кураторці",
                     reply_markup=kb.get_sasha_curator_keyboard(),
                 )
@@ -269,7 +270,8 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
         logging.error(f"house: інвайт для {student['id']} ({house_name}) не створився: {exc}")
         await report_error(exc, context=f"house invite link ({student['id']}, {house_name})")
-        await callback.message.edit_text(
+        await ut.safe_edit_text(
+            callback.message,
             "❌ Не вдалося створити посилання. Напиши хаус-кураторці ⬇️",
             reply_markup=kb.get_pasha_curator_keyboard(),
         )

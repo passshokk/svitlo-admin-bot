@@ -2,6 +2,7 @@
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 from core import database as db
+from core import utils as ut
 from core.context import student_ctx, user_roles_ctx
 from bot.states import Registration
 from aiogram.fsm.context import FSMContext
@@ -90,7 +91,7 @@ class RequireAuthMiddleware(BaseMiddleware):
 
         if isinstance(event, CallbackQuery):
             await event.answer()
-            await event.message.delete()
+            await ut.safe_delete(event.message)
             await event.message.answer(text_1, parse_mode="HTML")
             await event.message.answer(text_2, parse_mode="HTML", reply_markup=kb.get_email_cancel_kb())
         elif isinstance(event, Message):

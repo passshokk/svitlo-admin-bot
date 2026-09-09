@@ -6,8 +6,16 @@ import httpx
 import re
 import phonenumbers
 from aiogram.types import BotCommand, BotCommandScopeChat, Message
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 
 from core import config as cfg
+from core.constants import BENIGN_TELEGRAM_BADREQUESTS
 
 # ====================================================================================
 # region Messaging
@@ -18,6 +26,48 @@ async def step_answer(target: Message, text: str, **kwargs) -> Message:
     вводу) — щоб каскад технічних повідомлень під час реєстрації не провокував мут бота"""
     kwargs.setdefault("disable_notification", True)
     return await target.answer(text, **kwargs)
+
+
+async def safe_edit_text(message: Message, text: str, **kwargs) -> Message | None:
+    """`message.edit_text` з ковтанням доброякісних збоїв Telegram.
+
+    * `TelegramBadRequest` з BENIGN_TELEGRAM_BADREQUESTS (message is not
+      modified / to edit not found / can't be edited / query is too old) —
+      подвійний тап або повторна доставка callback-апдейту редагують
+      повідомлення в той самий контент чи вже зникле повідомлення;
+    * `TelegramNetworkError` / `TelegramRetryAfter` / `TelegramServerError` —
+      тимчасовий мережевий збій, флуд-ліміт чи 5xx на холодному контейнері.
+
+    Основна робота хендлера (запис у Firestore, зміна FSM) вже зроблена до
+    цього виклику, тож зірване косметичне редагування не має валити апдейт.
+    Реальні `TelegramBadRequest` (напр. поганий HTML) кидаються далі."""
+    try:
+        return await message.edit_text(text, **kwargs)
+    except TelegramBadRequest as e:
+        if any(s in str(e).lower() for s in BENIGN_TELEGRAM_BADREQUESTS):
+            return None
+        raise
+    except (TelegramNetworkError, TelegramRetryAfter, TelegramServerError):
+        return None
+
+
+async def safe_delete(message: Message) -> bool:
+    """`message.delete` з ковтанням очікуваних відмов Telegram. Повертає True,
+    якщо повідомлення реально видалено.
+
+    Бот може видаляти лише свої повідомлення віком < 48 год; повертається
+    користувач, тисне стару інлайн-кнопку — і `delete()` кидає
+    `TelegramBadRequest` (message can't be deleted for everyone / message to
+    delete not found). Це не помилка логіки, а обмеження API."""
+    try:
+        await message.delete()
+        return True
+    except TelegramBadRequest as e:
+        if any(s in str(e).lower() for s in BENIGN_TELEGRAM_BADREQUESTS):
+            return False
+        raise
+    except (TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter, TelegramServerError):
+        return False
 
 # ====================================================================================
 # region Format & Check

@@ -143,3 +143,22 @@ AGE_PROMOTION_LINK_ONLY_MSG = (
     "Твоє персональне одноразове посилання до чату старшої групи 👇\n"
     "<i>(у чаті молодшої групи тебе вже немає)</i>"
 )
+
+# ---------------------------------------------------------------------------
+# Доброякісні тексти TelegramBadRequest
+# ---------------------------------------------------------------------------
+# Підрядки в описі TelegramBadRequest, які означають НЕ баг логіки, а гонку
+# апдейтів / подвійний тап / застарілий callback: повідомлення вже в
+# потрібному стані, вже видалене, застаре для редагування чи видалення, або
+# минув дедлайн відповіді на callback_query. Такі не варто ні кидати вище з
+# хендлера (core.utils.safe_edit_text / safe_delete), ні репортити в
+# адмінчат (@dp.errors у main.py).
+BENIGN_TELEGRAM_BADREQUESTS = (
+    "message is not modified",
+    "message to edit not found",
+    "message can't be edited",
+    "message to delete not found",
+    "message can't be deleted",
+    "message identifier is not specified",
+    "query is too old",
+)

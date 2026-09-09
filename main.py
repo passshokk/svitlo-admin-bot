@@ -20,6 +20,7 @@ from api.webapp_routes import webapp_router
 from api.admin_routes import admin_router
 from core import utils as ut
 from core import schooltoday
+from core.constants import BENIGN_TELEGRAM_BADREQUESTS
 from core.error_reporting import report_error
 
 # === БЛОК ЛОГУВАННЯ ===
@@ -41,16 +42,20 @@ dp.include_router(tg_router)
 
 def _is_transient_telegram_error(exc: BaseException) -> bool:
     """Транзієнтні квірки Telegram API, а не баги логіки бота: мережеві
-    таймаути, флуд-ліміти, 5xx від Telegram і "протухлий" callback_query, що
-    відстояв у черзі під час холодного старту контейнера. Такими глобальний
-    хендлер не повинен ні спамити адмінчат, ні лякати користувача.
-    TelegramEntityTooLarge (спроба надіслати завеликий файл) — підклас
-    TelegramNetworkError, але це стала помилка, тож її не глушимо."""
+    таймаути, флуд-ліміти, 5xx від Telegram, "протухлий" callback_query і
+    доброякісні BadRequest (повідомлення вже в потрібному стані / вже
+    видалене / застаре для редагування-видалення) — гонка апдейтів, подвійний
+    тап чи повторна доставка. Такими глобальний хендлер не повинен ні спамити
+    адмінчат, ні лякати користувача. TelegramEntityTooLarge (спроба надіслати
+    завеликий файл) — підклас TelegramNetworkError, але це стала помилка, тож
+    її не глушимо."""
     if isinstance(exc, TelegramEntityTooLarge):
         return False
     if isinstance(exc, (TelegramNetworkError, TelegramRetryAfter, TelegramServerError)):
         return True
-    if isinstance(exc, TelegramBadRequest) and "query is too old" in str(exc).lower():
+    if isinstance(exc, TelegramBadRequest) and any(
+        s in str(exc).lower() for s in BENIGN_TELEGRAM_BADREQUESTS
+    ):
         return True
     return False
 

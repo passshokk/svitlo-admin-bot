@@ -4,6 +4,13 @@ import json
 from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
+from google.api_core.retry import AsyncRetry
+from google.api_core.exceptions import (
+    ServiceUnavailable,
+    DeadlineExceeded,
+    InternalServerError,
+    Aborted,
+)
 
 PROJECT_ID = "svitlo-auth-bot"
 REGION = "europe-west3"
@@ -21,7 +28,23 @@ QUEUE_NAME = "bot-tasks-queue"
 # студентів пройдуть чергою за години.
 SCHOOLTODAY_QUEUE = "schooltoday-queue"
 
-SERVICE_URL = os.getenv("SERVICE_URL") 
+SERVICE_URL = os.getenv("SERVICE_URL")
+
+# Cloud Tasks зрідка рве gRPC-стрім у момент create_task: у логах це
+# "503 UNAVAILABLE: Stream removed (recvmsg:Connection reset by peer (104))",
+# рідше DEADLINE_EXCEEDED / 500. Раніше такий збій летів необробленим
+# винятком у webhook-хендлер (напр. process_auth_new_lead) і рвав воронку
+# юзеру. Ретрай безпечний: імені таски ми не задаємо, тож у найгіршому разі
+# буде дубль, а приймачі в api/task_routes самі відсіюють застарілі/повторні.
+_CREATE_TASK_RETRY = AsyncRetry(
+    predicate=lambda exc: isinstance(
+        exc, (ServiceUnavailable, DeadlineExceeded, InternalServerError, Aborted)
+    ),
+    initial=0.5,
+    maximum=8.0,
+    multiplier=2.0,
+    timeout=30.0,
+)
 
 _async_client: tasks_v2.CloudTasksAsyncClient | None = None
 
@@ -67,4 +90,7 @@ async def enqueue_task(endpoint: str, payload: dict, delay_seconds: int = 0,
         task["schedule_time"] = timestamp
 
     # Тепер create_task повертає асинхронний корутин-об'єкт
-    await client.create_task(request={"parent": parent, "task": task})
+    await client.create_task(
+        request={"parent": parent, "task": task},
+        retry=_CREATE_TASK_RETRY,
+    )
