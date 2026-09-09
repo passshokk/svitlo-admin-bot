@@ -177,7 +177,7 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="📚 Reading Buddy Groups", callback_data="rb_day:0")
     builder.button(text="📱 Socials", callback_data="socials")
     builder.button(text="🆘 FAQ", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
-    builder.button(text="🌟 Svitlo Help Centre", callback_data="support_menu")
+    builder.button(text="🌟 Svitlo Support Centre", callback_data="support_menu")
     builder.button(text="💌 Mental Support", url="https://forms.gle/MGyGav2krG1x7x8DA")
 
     builder.adjust(1, 1, 1, 2, 1, 1)
@@ -238,7 +238,10 @@ def get_email_cancel_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 def get_pasha_curator_keyboard() -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(text="Зв'язатися з куратором", url="https://t.me/passshokk")]]
+    buttons = [
+        [InlineKeyboardButton(text="Зв'язатися з куратором", url="https://t.me/passshokk")],
+        [InlineKeyboardButton(text="🔙 Назад у меню", callback_data="main_menu")]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_sasha_curator_keyboard() -> InlineKeyboardMarkup:
