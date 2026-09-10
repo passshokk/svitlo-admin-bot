@@ -243,9 +243,13 @@ async def increment_rules_mistake(doc_id: str):
 # ==========================
 # region --- Ticket System
 
+# Колекція звернень у Svitlo Support Centre (до вересня 2026 називалась "HelpTickets",
+# перейменована разом із ребрендингом Help Centre → Support Centre; дані перенесено).
+TICKETS_COLLECTION = 'SupportCentreTickets'
+
 async def create_ticket(ticket_id: int, student_id: int, category: str, first_message: str, thread_id: int | None = None):
     """Створення тікета в базі"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.set({
         'ticket_id': int(ticket_id),
         'student_id': student_id,
@@ -262,7 +266,7 @@ async def create_ticket(ticket_id: int, student_id: int, category: str, first_me
 
 async def get_ticket(ticket_id: int | str) -> dict | None:
     """Отримує всі дані тікета за його ID"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     doc = await doc_ref.get()
     if doc.exists:
         return doc.to_dict()
@@ -271,7 +275,7 @@ async def get_ticket(ticket_id: int | str) -> dict | None:
 async def get_ticket_by_thread(thread_id: int) -> dict | None:
     """Шукає тікет за id його гілки (forum topic) в CURATOR_GROUP_ID.
     Кожен тікет живе у власній гілці, тож thread_id однозначно визначає тікет."""
-    query = db.collection('HelpTickets').where(filter=FieldFilter('thread_id', '==', thread_id)).limit(1)
+    query = db.collection(TICKETS_COLLECTION).where(filter=FieldFilter('thread_id', '==', thread_id)).limit(1)
     docs = await query.get()
     for doc in docs:
         return doc.to_dict()
@@ -279,7 +283,7 @@ async def get_ticket_by_thread(thread_id: int) -> dict | None:
 
 async def get_active_ticket(student_id: int) -> dict | None:
     """Шукає відкритий тікет студента (open або in_progress)"""
-    query = db.collection('HelpTickets').where(filter=FieldFilter('student_id', '==', student_id)).where(filter=FieldFilter('status', 'in', ['open', 'in_progress'])).limit(1)
+    query = db.collection(TICKETS_COLLECTION).where(filter=FieldFilter('student_id', '==', student_id)).where(filter=FieldFilter('status', 'in', ['open', 'in_progress'])).limit(1)
     docs = await query.get()
     for doc in docs:
         return doc.to_dict()
@@ -287,21 +291,21 @@ async def get_active_ticket(student_id: int) -> dict | None:
 
 async def append_user_message(ticket_id: str, message: str):
     """Додавання нових повідомлень студента в масив"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'user_raw_question': firestore.ArrayUnion([message])
     })
 
 async def append_curator_message(ticket_id: str, message: str):
     """Додавання відповідей куратора в масив"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'curator_raw_answer': firestore.ArrayUnion([message])
     })
 
 async def assign_curator(ticket_id: str, curator_name: str):
     """Закріплення тікета за куратором"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'status': 'in_progress',
         'curator_name': curator_name
@@ -309,7 +313,7 @@ async def assign_curator(ticket_id: str, curator_name: str):
 
 async def close_ticket(ticket_id: str):
     """Закриття тікета (вирішено куратором)"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'status': 'closed',
         'closed_at': get_kyivtime_now()
@@ -318,7 +322,7 @@ async def close_ticket(ticket_id: str):
 async def cancel_ticket(ticket_id: str):
     """Скасування тікета самим студентом (окремо від 'closed', щоб не плутати
     з вирішеними куратором запитами в аналітиці/NPS)"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'status': 'cancelled',
         'closed_at': get_kyivtime_now()
@@ -326,7 +330,7 @@ async def cancel_ticket(ticket_id: str):
 
 async def set_ticket_rating(ticket_id: str, rating: int):
     """Збереження оцінки NPS"""
-    doc_ref = db.collection('HelpTickets').document(str(ticket_id))
+    doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({'rating': rating})
     # Повертаємо оновлений документ для відправки в Notion
     doc = await doc_ref.get()

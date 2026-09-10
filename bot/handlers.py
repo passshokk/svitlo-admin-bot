@@ -317,7 +317,7 @@ async def show_socials(callback: CallbackQuery):
         reply_markup=kb.get_socials_kb()
     )
 
-async def _open_help_category_picker(send, user_id: int, state: FSMContext) -> bool:
+async def _open_support_category_picker(send, user_id: int, state: FSMContext) -> bool:
     """Спільна логіка для кнопки 'Svitlo Support Centre' та команди /help поза реєстрацією.
     Повертає True, якщо категорію показано; False, якщо в юзера вже є відкритий тікет."""
     active_ticket = await db.get_active_ticket(user_id)
@@ -337,11 +337,11 @@ async def _open_help_category_picker(send, user_id: int, state: FSMContext) -> b
 @public_router.callback_query(F.data == "support_menu")
 async def start_support_inline(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await _open_help_category_picker(callback.message.answer, callback.from_user.id, state)
+    await _open_support_category_picker(callback.message.answer, callback.from_user.id, state)
 
 @public_router.message(Command("help"))
 async def start_support_command(message: Message, state: FSMContext):
-    await _open_help_category_picker(message.answer, message.from_user.id, state)
+    await _open_support_category_picker(message.answer, message.from_user.id, state)
 
 @public_router.callback_query(F.data.startswith("take_"))
 async def curator_takes_ticket(callback: CallbackQuery):
@@ -758,7 +758,7 @@ async def process_email_input(message: Message, state: FSMContext):
         print(f"ERROR: {e}")
 
 # endregion =====================================================
-# region HELP CENTRE
+# region SUPPORT CENTRE
 # ===============================================================
 
 async def _cancel_active_ticket_core(bot, active_ticket: dict) -> None:

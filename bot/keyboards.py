@@ -221,13 +221,6 @@ def get_back_to_menu_kb() -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(text="🔙 Назад у меню", callback_data="main_menu")]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_help_keyboard() -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text="Зв'язатися з куратором", url="https://t.me/passshokk")],
-        [InlineKeyboardButton(text="🔙 Назад у меню", callback_data="main_menu")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 # endregion
 # ==========================
 # region --- Operational Buttons
