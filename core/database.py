@@ -444,4 +444,18 @@ async def set_registration_open(is_open: bool):
         merge=True,
     )
 
+async def get_next_registration_date() -> str | None:
+    """Людиночитабельна дата наступного набору (напр. "28 жовтня").
+    Показується лідам на кнопці-блокері, коли реєстрація закрита.
+    Керується овнером через /registration <дата>."""
+    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
+    data = doc.to_dict() if doc.exists else {}
+    return (data.get("nextRegistrationDate") or "").strip() or None
+
+async def set_next_registration_date(date_str: str):
+    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
+        {"nextRegistrationDate": date_str.strip()},
+        merge=True,
+    )
+
 # endregion

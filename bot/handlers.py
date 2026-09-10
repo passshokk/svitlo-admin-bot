@@ -1,7 +1,7 @@
 # bot/handlers.py
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, ReactionTypeEmoji, LinkPreviewOptions
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
@@ -142,15 +142,26 @@ async def handle_tester_user_shared(message: Message):
 # /registration: власник перемикає, чи бачать нові ліди кнопку "Хочу зареєструватись" на /start.
 # Не прив'язано до списку тестувальників — це окремий продакшн-перемикач.
 
-def _registration_status_text(is_open: bool) -> str:
+def _registration_status_text(is_open: bool, next_date: str | None = None) -> str:
     status = "🟢 Відкрита" if is_open else "🔴 Закрита"
-    return f"🎓 Реєстрація: {status}"
+    lines = [f"🎓 Реєстрація: {status}"]
+    if not is_open:
+        if next_date:
+            lines.append(f"📅 Наступний набір: <b>{next_date}</b>")
+        else:
+            lines.append("📅 Наступний набір не вказано — задай: <code>/registration 28 жовтня</code>")
+    return "\n".join(lines)
 
 @public_router.message(Command("registration"), F.from_user.id == cfg.OWNER_ID)
-async def cmd_registration(message: Message):
+async def cmd_registration(message: Message, command: CommandObject):
+    # /registration <дата> — задає людиночитабельну дату наступного набору,
+    # яку бачать ліди на кнопці-блокері, коли реєстрація закрита.
+    if command.args:
+        await db.set_next_registration_date(command.args)
     is_open = await db.get_registration_open()
+    next_date = await db.get_next_registration_date()
     await message.answer(
-        _registration_status_text(is_open),
+        _registration_status_text(is_open, next_date),
         reply_markup=kb.get_registration_toggle_kb(is_open)
     )
 
@@ -159,8 +170,9 @@ async def cb_registration_toggle(callback: CallbackQuery):
     is_open = callback.data == "registration_open"
     await db.set_registration_open(is_open)
     await callback.answer("Готово!")
+    next_date = await db.get_next_registration_date()
     await callback.message.edit_text(
-        _registration_status_text(is_open),
+        _registration_status_text(is_open, next_date),
         reply_markup=kb.get_registration_toggle_kb(is_open)
     )
 

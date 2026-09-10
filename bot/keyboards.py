@@ -22,11 +22,14 @@ def get_start_menu() -> InlineKeyboardMarkup:
 
 def get_guest_start_menu(registration_open: bool = True) -> InlineKeyboardMarkup:
     """Стартове меню для неідентифікованих користувачів (лідів).
-    Кнопка "Хочу зареєструватись" з'являється лише поки реєстрація відкрита овнером (/registration)."""
+    Поки реєстрація відкрита овнером (/registration) — активна кнопка "Хочу зареєструватись".
+    Коли закрита — на її місці червона кнопка-блокер, що показує дату наступного набору."""
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", callback_data="auth_existing"))
+    builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", style="primary", callback_data="auth_existing"))
     if registration_open:
         builder.row(InlineKeyboardButton(text="🙋 Хочу зареєструватись", style="primary", callback_data="auth_new_lead"))
+    else:
+        builder.row(InlineKeyboardButton(text="🔒 Реєстрацію зараз закрито", style="danger", callback_data="reg_closed_info"))
     return builder.as_markup()
 
 def get_start_registration_kb() -> InlineKeyboardMarkup:
@@ -176,11 +179,12 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="🏰 Join House Group", callback_data="house")
     builder.button(text="📚 Reading Buddy Groups", callback_data="rb_day:0")
     builder.button(text="📱 Socials", callback_data="socials")
-    builder.button(text="🆘 FAQ", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
-    builder.button(text="🌟 Svitlo Support Centre", callback_data="support_menu")
+    builder.button(text="⁉️ FAQ — Frequent Questions", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
+    builder.button(text="📜 Rules and Culture", url="https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21")
+    builder.button(text="🆘 Svitlo Support Centre", callback_data="support_menu")
     builder.button(text="💌 Mental Support", url="https://forms.gle/MGyGav2krG1x7x8DA")
 
-    builder.adjust(1, 1, 1, 2, 1, 1)
+    builder.adjust(1)
     return builder.as_markup()
 
 def get_socials_kb() -> InlineKeyboardMarkup:

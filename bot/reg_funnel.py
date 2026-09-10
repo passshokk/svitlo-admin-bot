@@ -240,10 +240,21 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await ut.step_answer(callback.message, "🔐 <b>Синхронізація акаунта</b>")
     await ut.step_answer(callback.message, "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 
+async def _registration_closed_alert() -> str:
+    """Текст спливаючого вікна, коли лід тисне на заблоковану реєстрацію."""
+    date_str = await db.get_next_registration_date()
+    if date_str:
+        return f"Наступна реєстрація — {date_str}"
+    return "⚠️ Реєстрація нових студентів наразі закрита"
+
+@reg_router.callback_query(F.data == "reg_closed_info")
+async def process_reg_closed_info(callback: CallbackQuery):
+    await callback.answer(await _registration_closed_alert(), show_alert=True)
+
 @reg_router.callback_query(F.data == "auth_new_lead")
 async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
     if not await db.get_registration_open():
-        await callback.answer("⚠️ Наразі реєстрація нових студентів закрита", show_alert=True)
+        await callback.answer(await _registration_closed_alert(), show_alert=True)
         await callback.message.edit_reply_markup(reply_markup=kb.get_guest_start_menu(registration_open=False))
         return
 
