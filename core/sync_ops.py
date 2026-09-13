@@ -271,8 +271,16 @@ async def main(argv: list[str] | None = None):
     if args.limit:
         docs = docs[:args.limit]
 
-    pupil_jobs, parent_jobs = [], []
-    baseline_by_doc: dict[str, dict] = {}
+    pupil_jobs = []
+    baseline_inputs: dict[str, dict] = {}
+    # parent_id -> [(patch, doc), ...] — зібрані з усіх дітей цього батька.
+    # Кілька дітей однієї сім'ї мають окремі анкети у Firestore, і якщо їхні
+    # анкети розходяться в даних батька (одна дитина писала «Іра», інша —
+    # «Ірина»), кожна анкета порахує свій патч проти того самого батька в ШС.
+    # Застосувати обидва по черзі означало б нескінченно перемикати картку
+    # туди-сюди при кожному синку — тому рішення відкладено до resolve-етапу
+    # нижче, а не приймається тут одразу.
+    parent_candidates: dict[int, list[tuple[dict, dict]]] = collections.defaultdict(list)
     stats = collections.Counter()
     samples = collections.defaultdict(list)
     field_counts = collections.Counter()
@@ -297,21 +305,48 @@ async def main(argv: list[str] | None = None):
 
         parent_id = doc.get("stParentId")
         parent = parents.get(parent_id) if parent_id else None
-        p_patch = {}
         if parent:
             p_patch = parent_patch(doc, parent)
             if p_patch:
-                parent_jobs.append((parent_id, p_patch, doc))
-                for field in p_patch:
-                    field_counts[f"батько: {field}"] += 1
-                    if len(samples["p_" + field]) < args.show:
-                        samples["p_" + field].append(
-                            (doc.get("parentFirstName"), parent.get(field), p_patch[field]))
+                parent_candidates[parent_id].append((p_patch, doc))
         elif doc.get("parentFirstName") or doc.get("parentLastName"):
             stats["батько є у нас, але не прив'язаний у ШС"] += 1
 
-        baseline_by_doc[doc["_id"]] = synced_state(
-            pupil, parent, names, patch, custom_updates, p_patch)
+        baseline_inputs[doc["_id"]] = {
+            "pupil": pupil, "parent": parent,
+            "patch": patch, "custom_updates": custom_updates,
+        }
+
+    # Resolve-етап: батьківський патч застосовуємо, лише коли ВСІ діти, чиї
+    # анкети на нього претендують, хочуть одне й те саме. Якщо анкети
+    # розходяться — це конфлікт даних у Firestore, а не питання синку, і
+    # вирішувати його має людина; у ШС в цьому випадку нічого не пишемо.
+    parent_jobs = []
+    parent_patch_by_doc: dict[str, dict] = {}
+    parent_conflicts: list[tuple[int, list[tuple[dict, dict]]]] = []
+
+    for parent_id, entries in parent_candidates.items():
+        distinct = {tuple(sorted(patch.items())): (patch, doc) for patch, doc in entries}
+        if len(distinct) == 1:
+            patch, doc = entries[0]
+            parent_jobs.append((parent_id, patch, doc))
+            for _, d in entries:
+                parent_patch_by_doc[d["_id"]] = patch
+            for field in patch:
+                field_counts[f"батько: {field}"] += 1
+                if len(samples["p_" + field]) < args.show:
+                    samples["p_" + field].append(
+                        (doc.get("parentFirstName"), parents[parent_id].get(field), patch[field]))
+        else:
+            parent_conflicts.append((parent_id, entries))
+
+    baseline_by_doc = {
+        doc_id: synced_state(
+            info["pupil"], info["parent"], names, info["patch"], info["custom_updates"],
+            parent_patch_by_doc.get(doc_id, {}),
+        )
+        for doc_id, info in baseline_inputs.items()
+    }
 
     print("=" * 74)
     print("ЩО ЗМІНИТЬСЯ")
@@ -330,11 +365,28 @@ async def main(argv: list[str] | None = None):
         for who, was, now in samples[key][:5]:
             print(f"      {who}: {was!r} → {now!r}")
 
+    if parent_conflicts:
+        print("\n" + "=" * 74)
+        print("КОНФЛІКТ АНКЕТ БАТЬКІВ — у ШС не пишемо, рішення за людиною")
+        print("=" * 74)
+        print("Різні діти одного батька мають різні дані про нього у Firestore.")
+        print("Записати одну з версій навмання означало б наступним синком")
+        print("переключити на іншу — тому обидві анкети лишаються як є.\n")
+        for parent_id, entries in parent_conflicts:
+            who = ", ".join(f"{doc.get('firstName')} {doc.get('lastName')}".strip()
+                            for _, doc in entries)
+            print(f"  Батько #{parent_id} (діти: {who})")
+            for patch, doc in entries:
+                print(f"      {doc['_id']}: {patch}")
+        print()
+
     print("\n" + "=" * 74)
     for key, value in stats.items():
         print(f"  {value:>5}  {key}")
     print(f"\nКарток учнів до оновлення:  {len(pupil_jobs)}")
     print(f"Карток батьків до оновлення: {len(parent_jobs)}")
+    if parent_conflicts:
+        print(f"Конфліктів анкет батьків, що потребують рішення: {len(parent_conflicts)}")
 
     if not args.apply:
         print("\nПробний прогін. Щоб застосувати — додай --apply")
