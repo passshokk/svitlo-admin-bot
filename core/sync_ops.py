@@ -62,6 +62,7 @@ def actual_from_st(pupil: dict, parent: dict | None, names: dict) -> dict:
         "gender": pupil.get("gender"),
         "classID": pupil.get("classID"),
         "pupilTypeID": pupil.get("pupilTypeID"),
+        "phoneNumber": normalize_phone(pupil.get("phoneNumber")) or "",
     }
     for alias in ("health", "health_details", "lead_source",
                   "tg_nickname", "tg_id", "semester", "idp", "idp_region"):
@@ -84,7 +85,7 @@ def synced_state(pupil: dict, parent: dict | None, names: dict,
     потім щоразу бачити хибне «поправили руками».
     """
     state = actual_from_st(pupil, parent, names)
-    for field in ("firstName", "lastName", "gender", "classID", "pupilTypeID"):
+    for field in ("firstName", "lastName", "gender", "classID", "pupilTypeID", "phoneNumber"):
         if field in patch:
             state[field] = patch[field]
     state.update(custom_updates)
@@ -103,6 +104,7 @@ def owned_values(doc: dict, names: dict, registry: dict) -> dict:
         "gender": GENDER_TO_ST.get(doc.get("gender")),
         "classID": registry["class_id"].get(class_name) if class_name else None,
         "pupilTypeID": registry["pupil_type_id"].get((doc.get("house") or "").strip()),
+        "phoneNumber": normalize_phone(doc.get("phone")) or "",
         names["health"]: "Так" if doc.get("hasHealthIssues") else "Ні",
         names["health_details"]: (doc.get("healthIssuesDetails") or "").strip(),
         names["lead_source"]: (doc.get("leadSource") or "").strip(),
@@ -164,6 +166,14 @@ async def pupil_patch(doc: dict, pupil: dict, names: dict, registry: dict,
     type_id = registry["pupil_type_id"].get(house)
     if type_id and type_id != pupil.get("pupilTypeID"):
         patch["pupilTypeID"] = type_id
+
+    current_phone = (pupil.get("phoneNumber") or "").strip()
+    phone = normalize_phone(doc.get("phone"))
+    # Як і з телефоном батька: якщо в ШС уже кілька номерів через кому,
+    # normalize_phone розпізнає лише перший — не чіпаємо, щоб не стерти
+    # запасні контакти, введені вручну.
+    if phone and phone != current_phone and "," not in current_phone:
+        patch["phoneNumber"] = phone
 
     updates = {}
     values = {
@@ -312,7 +322,7 @@ async def main(argv: list[str] | None = None):
     print("\n" + "=" * 74)
     print("ПРИКЛАДИ")
     print("=" * 74)
-    for key in ("externalID", "firstName", "lastName", "p_externalID",
+    for key in ("externalID", "firstName", "lastName", "phoneNumber", "p_externalID",
                 "p_firstName", "p_lastName", "p_phoneNumber"):
         if not samples[key]:
             continue

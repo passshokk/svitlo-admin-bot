@@ -14,7 +14,15 @@ class FirestoreStorage(BaseStorage):
         self.collection = db.collection(collection_name)
 
     def _get_doc_ref(self, key: StorageKey):
-        return self.collection.document(str(key.user_id))
+        # У приватному чаті chat_id завжди дорівнює user_id — лишаємо документ
+        # "str(user_id)" як і раніше, щоб не мігрувати вже існуючі сесії.
+        # Але той самий user_id пише і в CURATOR_GROUP_ID (як куратор), і там
+        # chat_id інший. Якщо ігнорувати chat_id, стан з приватного чату (напр.
+        # Registration.waiting_email) підхоплюється в груповому і хендлери
+        # реєстрації перехоплюють повідомлення куратора замість curator_reply_handler.
+        if key.chat_id == key.user_id:
+            return self.collection.document(str(key.user_id))
+        return self.collection.document(f"{key.user_id}_{key.chat_id}")
 
     async def set_state(self, key: StorageKey, state: StateType = None) -> None:
         doc_ref = self._get_doc_ref(key)

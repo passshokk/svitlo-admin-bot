@@ -1,4 +1,5 @@
 # core/database.py
+import logging
 import firebase_admin
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -157,6 +158,8 @@ async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
         try:
             # .create() атомарно створить документ АБО викине помилку AlreadyExists
             await doc_ref.create(payload)
+            # Створення заявки: попередньої стадії не існує, тож fromStage
+            # свідомо порожній — це не втрачене значення, а його відсутність.
             await _log_stage_event(custom_doc_id, "lead", now)
             return custom_doc_id, True
         except AlreadyExists:
@@ -194,7 +197,8 @@ async def save_lead_profile(doc_id: str, data: dict, next_stage: str):
     await db.collection('Svitlo').document(doc_id).set(payload, merge=True)
     await update_crm_stage(doc_id, next_stage)
 
-async def _log_stage_event(doc_id: str, stage: str, at):
+async def _log_stage_event(doc_id: str, stage: str, at, from_stage: str | None = None,
+                           actor: str = "bot", reason: str = ""):
     """
     Пише append-only подію переходу стадії в `StageEvents`.
 
@@ -202,14 +206,36 @@ async def _log_stage_event(doc_id: str, stage: str, at):
     тому без окремого логу неможливо порахувати funnel-конверсію в часі
     (напр. "скільки лідів відвалилось на квізі правил у червні"). Ця колекція —
     єдине джерело історії для майбутньої аналітики/CRM.
+
+    `fromStage` / `actor` / `reason` додані пізніше. Без них аналітика мусила
+    ВГАДУВАТИ напрямок переходу: подія несла лише "куди", тож відкат заявки
+    (`reg_restart`), ручне переставляння стадії з панелі й органічний рух
+    воронкою виглядали однаково. Саме через це в core/analytics живе евристика
+    `_latest_transition_minutes` — вона відновлює пари подій здогадом. Із
+    цими полями те саме рахується точно.
+
+    На старих документах цих полів немає, і це нормально: усі читачі мусять
+    працювати з подією, у якій є лише `studentId`/`stage`/`at`.
+
+    `actor`: "bot" — рух самого заявника через воронку; email куратора —
+    рішення з панелі (там своя дзеркальна копія цієї функції).
     """
-    await db.collection('StageEvents').document().set({
+    payload = {
         "studentId": doc_id,
         "stage": stage,
-        "at": at
-    })
+        "at": at,
+        "actor": actor,
+    }
+    # Порожні поля не пишемо: у Firestore вони коштують стільки ж, скільки
+    # заповнені, а в аналітиці "" і відсутнє поле однаково означають "невідомо".
+    if from_stage:
+        payload["fromStage"] = from_stage
+    if reason:
+        payload["reason"] = reason
+    await db.collection('StageEvents').document().set(payload)
 
-async def update_crm_stage(doc_id: str, next_stage: str, reason: str = ""):
+async def update_crm_stage(doc_id: str, next_stage: str, reason: str = "",
+                           from_stage: str | None = None):
     """
     Оновлює в `Svitlo` поточну стадію та timestamp останньої активності юзера,
     і логує сам перехід у `StageEvents`.
@@ -229,8 +255,18 @@ async def update_crm_stage(doc_id: str, next_stage: str, reason: str = ""):
         payload["blockReason"] = reason
         payload["blockedBy"] = "Бот (автоматична перевірка)"
         payload["blockedAt"] = now
+
+    # Одне читання заради `fromStage` у лозі. Так, це +1 читання на кожен
+    # перехід — але переходів кількасот на день, а без напрямку подія не
+    # відрізняє рух уперед від відкату, і вся аналітика швидкості змушена
+    # це вгадувати. `from_stage` можна передати згори, якщо стадія вже
+    # відома виклику, — тоді читання не буде.
+    if from_stage is None:
+        snapshot = await db.collection('Svitlo').document(doc_id).get()
+        from_stage = (snapshot.to_dict() or {}).get("stage") if snapshot.exists else None
+
     await db.collection('Svitlo').document(doc_id).update(payload)
-    await _log_stage_event(doc_id, next_stage, now)
+    await _log_stage_event(doc_id, next_stage, now, from_stage=from_stage, reason=reason)
 
 async def increment_rules_mistake(doc_id: str):
     """Атомарно інкрементує лічильник неправильних відповідей у квізі правил."""
@@ -261,6 +297,12 @@ async def create_ticket(ticket_id: int, student_id: int, category: str, first_me
         'status': 'open',
         'rating': None,
         'created_at': get_kyivtime_now(),
+        # Заповнюються пізніше: assigned_at — коли куратор узяв тікет,
+        # first_response_at — коли він уперше відповів. Разом вони дають
+        # розклад очікування на "лежав нічийним" і "вели, але мовчали".
+        'assigned_at': None,
+        'first_response_at': None,
+        'curator_history': [],
         'closed_at': None
     })
 
@@ -297,18 +339,40 @@ async def append_user_message(ticket_id: str, message: str):
     })
 
 async def append_curator_message(ticket_id: str, message: str):
-    """Додавання відповідей куратора в масив"""
+    """Додавання відповідей куратора в масив.
+
+    Перша відповідь додатково ставить `first_response_at` — час до першої
+    відповіді це головна метрика будь-якої підтримки, і дотепер її не було
+    з чого порахувати взагалі. Ставимо лише якщо поля ще немає: ArrayUnion
+    нижче спрацює на кожну репліку, а "перша" за визначенням одна.
+    """
     doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
-    await doc_ref.update({
-        'curator_raw_answer': firestore.ArrayUnion([message])
-    })
+    payload = {'curator_raw_answer': firestore.ArrayUnion([message])}
+
+    snapshot = await doc_ref.get()
+    if snapshot.exists and not (snapshot.to_dict() or {}).get('first_response_at'):
+        payload['first_response_at'] = get_kyivtime_now()
+
+    await doc_ref.update(payload)
 
 async def assign_curator(ticket_id: str, curator_name: str):
-    """Закріплення тікета за куратором"""
+    """Закріплення тікета за куратором.
+
+    `assigned_at` і `curator_history` додані заради аналітики підтримки:
+
+    * без `assigned_at` неможливо порахувати, скільки тікет ПРОЛЕЖАВ нічийним
+      — а це саме те, на що сварить крон /tasks/sla_check, тобто SLA існував
+      як правило, але не як вимірюване число;
+    * `curator_name` перезаписується при кожному перепризначенні, тож
+      атрибуція була "останній виграв". `curator_history` — append-only
+      поруч, сам `curator_name` лишається як є, щоб нічого не зламати.
+    """
     doc_ref = db.collection(TICKETS_COLLECTION).document(str(ticket_id))
     await doc_ref.update({
         'status': 'in_progress',
-        'curator_name': curator_name
+        'curator_name': curator_name,
+        'assigned_at': get_kyivtime_now(),
+        'curator_history': firestore.ArrayUnion([curator_name]),
     })
 
 async def close_ticket(ticket_id: str):
@@ -368,9 +432,45 @@ _SEMESTER_FALLBACK = "01_26-27"
 
 
 async def get_current_semester() -> str:
+    """Код семестру, який проставляється новому ліду при створенні.
+
+    Джерело №1 — навчальний календар (Config/academic_calendar). Саме він
+    знає, що семестр починається з першого дня канікул перед ним, а не з
+    першого уроку, тож нові ліди автоматично лягають у правильну когорту
+    в ту саму мить, коли набір відкривається.
+
+    Це прибирає рівно ту пастку, про яку попереджає коментар вище: раніше
+    код треба було бумкнути вручну, і якщо забути — усі реєстрації тихо
+    отримували чужу когорту, бо нічого не падало.
+
+    Джерело №2 (фолбек) — старе ручне поле `currentSemester`. Воно лишається
+    робочим, поки календар не залитий, і як аварійний важіль, якщо документ
+    видалять. Розбіжність між ними логуємо: мовчки проігнорований ручний
+    запис — це саме той різновид сюрпризу, якого тут і уникаємо.
+    """
     doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
     data = doc.to_dict() if doc.exists else {}
-    return (data.get("currentSemester") or "").strip() or _SEMESTER_FALLBACK
+    manual = (data.get("currentSemester") or "").strip()
+
+    try:
+        from core.academic_calendar import load_calendar, today
+        calendar = await load_calendar()
+        derived = calendar.current_semester(today()) if calendar else None
+    except Exception:
+        # Календар — не критичний шлях: реєстрація не має падати через нього.
+        logging.exception("Не вдалося взяти семестр із календаря")
+        derived = None
+
+    if derived:
+        if manual and manual != derived:
+            logging.warning(
+                "Семестр: календар каже %s, ручне поле currentSemester — %s. "
+                "Беремо календар; якщо потрібне саме ручне значення, правити треба календар.",
+                derived, manual,
+            )
+        return derived
+
+    return manual or _SEMESTER_FALLBACK
 
 
 async def set_current_semester(value: str) -> None:
@@ -451,10 +551,32 @@ async def set_registration_open(is_open: bool):
 async def get_next_registration_date() -> str | None:
     """Людиночитабельна дата наступного набору (напр. "28 жовтня").
     Показується лідам на кнопці-блокері, коли реєстрація закрита.
-    Керується овнером через /registration <дата>."""
+
+    Ручне значення (`/registration <дата>` від овнера) має ПРІОРИТЕТ —
+    на відміну від семестру й дат початку навчання. Причина: відкриття
+    набору це рішення школи, а не наслідок календаря. Календар лише
+    підказує дату, коли овнер її не проставив, щоб замість порожнечі
+    лід бачив хоч якийсь орієнтир.
+
+    Літні канікули календар навмисно не пропонує як "наступний набір"
+    (див. next_intake_start): після останнього семестру року дату
+    призначає людина.
+    """
     doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
     data = doc.to_dict() if doc.exists else {}
-    return (data.get("nextRegistrationDate") or "").strip() or None
+    manual = (data.get("nextRegistrationDate") or "").strip()
+    if manual:
+        return manual
+
+    try:
+        from core.academic_calendar import format_date, load_calendar, today
+        calendar = await load_calendar()
+        intake = calendar.next_intake_start(today()) if calendar else None
+        if intake:
+            return format_date(intake, with_weekday=False)
+    except Exception:
+        logging.exception("Не вдалося взяти дату набору з календаря")
+    return None
 
 async def set_next_registration_date(date_str: str):
     await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
