@@ -403,6 +403,10 @@ async def build_pupil_payload(doc_id: str, doc: dict, *,
     if address:
         payload["address"] = address
 
+    phone = normalize_phone(doc.get("phone"))
+    if phone:
+        payload["phoneNumber"] = phone
+
     if grant_access is not None:
         payload["grantAccess"] = grant_access
 

@@ -87,6 +87,9 @@ async def main():
     assert "parentIDs" not in payload, "parentIDs не має з'являтись без потреби"
     print("  OK  без parent_ids ключ parentIDs у payload відсутній")
 
+    assert payload["phoneNumber"] == "+380671234567", "телефон учня має нормалізуватись і потрапляти в payload"
+    print("  OK  телефон учня нормалізується і потрапляє в payload")
+
     for raw, expect in [("978815630", "P-380978815630"), ("+38068823020", None), ("", None)]:
         got = st.parent_external_id({"parentPhone": raw})
         assert got == expect, f"{raw!r} -> {got}, очікували {expect}"
