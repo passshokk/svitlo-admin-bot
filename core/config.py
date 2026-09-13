@@ -4,10 +4,10 @@ GROUPS_MAPPING = {
 }
 
 HOUSE_CHATS = {
-    "Caledonia": -3904151695,
-    "Hibernia": -4498108891,
-    "Cambria": -3853175079,
-    "Albion": -4459512165,
+    "Caledonia": -1003904151695,
+    "Hibernia": -1004498108891,
+    "Cambria": -1003853175079,
+    "Albion": -1004459512165,
 }
 
 CURATOR_GROUP_ID = -1004393635348

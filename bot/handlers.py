@@ -236,7 +236,30 @@ async def clbck_profile(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=kb.get_back_to_menu_kb())
 
 # Статуси ChatMember, які означають «студент фактично в чаті»
-_HOUSE_PRESENT_STATUSES = {"creator", "administrator", "member", "restricted"}
+_CHAT_PRESENT_STATUSES = {"creator", "administrator", "member", "restricted"}
+
+async def _is_chat_member_present(chat_id: int, user_id: int) -> bool:
+    """Фактичне членство в чаті — на відміну від прапорця в Firestore
+    (hasHouseAccess/hasGroupAccess), який каже лише «лінк колись видавали»."""
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+    except TelegramBadRequest as exc:
+        logging.warning(f"get_chat_member({chat_id}, {user_id}): {exc}")
+        return False
+    return getattr(member, "status", None) in _CHAT_PRESENT_STATUSES
+
+async def _issue_one_time_invite(chat_id: int, *, label: str):
+    """Одноразовий лінк на 48 год із людяною назвою в адмінці Telegram.
+    При помилці сама логує й репортить (report_error), повертає None —
+    виклик лише вирішує, що показати студенту."""
+    try:
+        return await bot.create_chat_invite_link(
+            chat_id, member_limit=1, expire_date=timedelta(days=2), name=label
+        )
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logging.error(f"invite link ({label}) не створився: {exc}")
+        await report_error(exc, context=f"invite link ({label})")
+        return None
 
 @private_router.callback_query(F.data == "house")
 async def clbck_house_smart_access(callback: CallbackQuery):
@@ -259,29 +282,16 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     # чаті». Тому звіряємось із фактичним членством: якщо студент справді всередині
     # — нічого не робимо; якщо загубив лінк / вийшов / кікнули — видаємо новий.
     # get_chat_member смикаємо тільки в цій гілці, щоб не робити зайвий виклик на першій видачі.
-    if data.get("hasHouseAccess", False):
-        try:
-            member = await bot.get_chat_member(target_chat_id, user_id)
-            if getattr(member, "status", None) in _HOUSE_PRESENT_STATUSES:
-                await ut.safe_edit_text(
-                    callback.message,
-                    "✅ <b>Ти вже в чаті свого Хауса.</b>\nЯкщо група загубилась, напиши хаус-кураторці",
-                    reply_markup=kb.get_sasha_curator_keyboard(),
-                )
-                return
-        except TelegramBadRequest as exc:
-            logging.warning(f"house: get_chat_member({target_chat_id}, {user_id}): {exc}")
-
-    try:
-        invite = await bot.create_chat_invite_link(
-            target_chat_id,
-            member_limit=1,
-            expire_date=timedelta(days=2),
-            name=f"{house_name}:{student['id']}",
+    if data.get("hasHouseAccess", False) and await _is_chat_member_present(target_chat_id, user_id):
+        await ut.safe_edit_text(
+            callback.message,
+            "✅ <b>Ти вже в чаті свого Хауса.</b>\nЯкщо група загубилась, напиши хаус-кураторці",
+            reply_markup=kb.get_sasha_curator_keyboard(),
         )
-    except (TelegramBadRequest, TelegramForbiddenError) as exc:
-        logging.error(f"house: інвайт для {student['id']} ({house_name}) не створився: {exc}")
-        await report_error(exc, context=f"house invite link ({student['id']}, {house_name})")
+        return
+
+    invite = await _issue_one_time_invite(target_chat_id, label=f"{house_name}:{student['id']}")
+    if not invite:
         await ut.safe_edit_text(
             callback.message,
             "❌ Не вдалося створити посилання. Напиши хаус-кураторці ⬇️",
@@ -711,6 +721,9 @@ async def process_email_input(message: Message, state: FSMContext):
         return
         
     data = student['data']
+    age_value = data.get("ageGroup")
+    target_chat_id = cfg.GROUPS_MAPPING.get(age_value)
+
     if data.get("hasGroupAccess") is True:
         if not data.get("telegramId") or data.get("telegramId") == 0:
             await db.link_telegram_id(student['id'], user_id)
@@ -720,42 +733,53 @@ async def process_email_input(message: Message, state: FSMContext):
 
             await message.answer("✅ <b>Твій акаунт успішно синхронізовано</b>", reply_markup=ReplyKeyboardRemove())
             await message.answer("<b>Вітаю у SvitloMenu!</b> Вибирай:", reply_markup=kb.get_main_menu())
+        elif target_chat_id and not await _is_chat_member_present(target_chat_id, user_id):
+            # Прапорець hasGroupAccess каже лише «лінк колись видавали» — не «студент
+            # у чаті». Тому звіряємось із фактичним членством, перш ніж відмовляти:
+            # загубив лінк / вийшов / кікнули -> видаємо новий, а не глухий відказ.
+            invite = await _issue_one_time_invite(target_chat_id, label=f"group:{student['id']}")
+            if not invite:
+                await message.answer("❌ Не вдалося створити посилання. Звернись до куратора ⬇️", reply_markup=kb.get_pasha_curator_keyboard())
+            else:
+                student_ctx.set(student)
+                user_roles_ctx.set(data.get('roles', []))
+                await message.answer(
+                    f"<b>Тебе не знайдено в чаті групи — ось нове одноразове посилання:</b>\n{invite.invite_link}",
+                    parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
+                )
+                await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
         else:
             await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", reply_markup=kb.get_back_to_menu_kb())
         await state.clear()
         return
-        
-    age_value = data.get("ageGroup")
-    target_chat_id = cfg.GROUPS_MAPPING.get(age_value)
+
     if not target_chat_id:
         await message.answer("❌ Не вдалося визначити твою вікову групу", reply_markup=kb.get_pasha_curator_keyboard())
         await state.clear()
         return
-        
-    try:
-        invite = await message.bot.create_chat_invite_link(
-            chat_id=int(target_chat_id), member_limit=1
-        )
-        await db.grant_access_to_student(student['id'], user_id)
 
-        student_ctx.set(student)
-        user_roles_ctx.set(data.get('roles', []))
-
-        await state.clear()
-        
-        raw_name = data.get("firstName", "Учень")
-        name = str(raw_name).strip().title()
-        await message.answer(
-            f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n"
-            f"<b>Твоє одноразове посилання: {invite.invite_link}</b>",
-            parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
-        )
-        
-        await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
-        
-    except Exception as e:
+    invite = await _issue_one_time_invite(target_chat_id, label=f"group:{student['id']}")
+    if not invite:
         await message.answer("❌ Технічна помилка при генерації посилання", reply_markup=kb.get_pasha_curator_keyboard())
-        print(f"ERROR: {e}")
+        await state.clear()
+        return
+
+    await db.grant_access_to_student(student['id'], user_id)
+
+    student_ctx.set(student)
+    user_roles_ctx.set(data.get('roles', []))
+
+    await state.clear()
+
+    raw_name = data.get("firstName", "Учень")
+    name = str(raw_name).strip().title()
+    await message.answer(
+        f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n"
+        f"<b>Твоє одноразове посилання: {invite.invite_link}</b>",
+        parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
+    )
+
+    await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
 
 # endregion =====================================================
 # region SUPPORT CENTRE
