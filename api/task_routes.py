@@ -204,9 +204,9 @@ async def task_schooltoday_enroll(request: Request):
 @tasks_router.post("/send_reminder")
 async def task_send_reminder(request: Request):
     """
-    Воркер Cloud Tasks: нагадування лідам, які натиснули "Хочу зареєструватись",
-    але не завершили заявку — через 24г і 48г. Планується в
-    bot/reg_funnel.py::process_auth_new_lead (лише для новостворених лідів).
+    Воркер Cloud Tasks: нагадування тим, хто натиснув "Почати реєстрацію",
+    але не завершив заявку — через 24г і 48г. Планується в
+    bot/reg_funnel.py::start_entering_data (лише для новостворених документів).
     """
     try:
         payload = await request.json()
@@ -223,9 +223,9 @@ async def task_send_reminder(request: Request):
 
         data = doc.to_dict()
 
-        # Лід уже пройшов далі особистих даних (правила, скан документа, зарахування,
+        # Заявник уже пройшов далі особистих даних (правила, скан документа, зарахування,
         # блокування) — нагадування вже не на часі.
-        if data.get("stage") not in ("lead", "personal_data"):
+        if data.get("stage") != "personal_data":
             return Response(status_code=200)
 
         # Це нагадування вже надсилалось раніше — захист від Cloud Tasks retry.

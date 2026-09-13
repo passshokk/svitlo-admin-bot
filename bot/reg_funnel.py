@@ -166,7 +166,10 @@ async def process_reg_restart(callback: CallbackQuery, state: FSMContext):
     if not student:
         student = await db.get_student_by_tg_id(callback.from_user.id)
     if student:
-        await db.update_crm_stage(student['id'], "lead")
+        # Документ видаляється повністю, а не відкочується назад: за новим
+        # визначенням воронки заявник взагалі не має "проміжного" стану до
+        # personal_data, тож скасована анкета — це відсутність запису.
+        await db.delete_student(student['id'])
 
     data = await state.get_data()
     interrupt_msg_id = data.get("interruptMsgId")
@@ -241,7 +244,7 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
     await ut.step_answer(callback.message, "Будь ласка, напиши свою <b>електронну пошту</b>, яку ти вказував при реєстрації у SvitloSchool:", reply_markup=kb.get_email_cancel_kb())
 
 async def _registration_closed_alert() -> str:
-    """Текст спливаючого вікна, коли лід тисне на заблоковану реєстрацію."""
+    """Текст спливаючого вікна, коли гість тисне на заблоковану реєстрацію."""
     date_str = await db.get_next_registration_date()
     if date_str:
         return f"Наступна реєстрація — {date_str}"
@@ -253,26 +256,21 @@ async def process_reg_closed_info(callback: CallbackQuery):
 
 @reg_router.callback_query(F.data == "auth_new_lead")
 async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
+    """Показує вітальний екран із кнопкою «Почати реєстрацію».
+
+    Свідомо НІЧОГО не пише в базу: раніше саме тут (клік «Хочу
+    зареєструватись») створювався документ зі stage="lead" — тобто людину
+    вважали "лідом" і рахували в конверсії тільки за те, що вона побачила
+    кнопку. Це спотворювало метрики (не кожен, хто тисне сюди, робить хоча б
+    наступний крок). Тепер документ і відлік конверсії з'являються лише на
+    кліку «Почати реєстрацію» (start_entering_data нижче).
+    """
     if not await db.get_registration_open():
         await callback.answer(await _registration_closed_alert(), show_alert=True)
         await callback.message.edit_reply_markup(reply_markup=kb.get_guest_start_menu(registration_open=False))
         return
 
     await callback.answer()
-    doc_id, is_new = await db.init_lead(callback.from_user.id, callback.from_user.username)
-
-    if is_new:
-        # Нагадування тим, хто натиснув "Хочу зареєструватись", але не завершив заявку —
-        # 24г і 48г від цього моменту. Кожен таск сам перевіряє актуальність при спрацюванні
-        # (send_reminder у api/task_routes.py), тож нічого скасовувати тут не треба.
-        # best-effort: Cloud Tasks зрідка недоступний (503), і через це не варто
-        # валити створення ліда — нагадування другорядні.
-        try:
-            await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 1}, delay_seconds=24 * 3600)
-            await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 2}, delay_seconds=48 * 3600)
-        except Exception:
-            logging.exception("send_reminder enqueue failed for %s (лід створено, нагадування пропущено)", doc_id)
-
     await callback.message.edit_text(
         LEAD_WELCOME_MSG,
         parse_mode="HTML",
@@ -281,16 +279,31 @@ async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
 
 @reg_router.callback_query(F.data == "start_onboarding_flow")
 async def start_entering_data(callback: CallbackQuery, state: FSMContext):
-    student = student_ctx.get()
-
-    # 🛡 Fail-Fast Захист: перериваємо виконання, якщо ліда немає в базі
-    if not student:
-        await callback.answer("⚠️ Профіль не знайдено. Спробуй /start", show_alert=True)
-        return
-
+    """Стартова точка воронки: тут заявник ІНІЦІАЛІЗУЄТЬСЯ (документ у
+    Firestore, перша подія в StageEvents, нагадування 24г/48г) і рахується
+    в конверсії — а не раніше, на кліку «Хочу зареєструватись».
+    """
     await callback.answer()
-    # Оновлюємо crm_stage, відмічаючи старт реєстрації
-    await db.update_crm_stage(student['id'], "personal_data")
+
+    student = student_ctx.get()
+    if student:
+        # Повертається людина, у якої вже є документ (наприклад, покинула
+        # анкету, не скасовуючи її) — не створюємо новий, лишень підтверджуємо стадію.
+        doc_id = student['id']
+        await db.update_crm_stage(doc_id, "personal_data")
+    else:
+        doc_id, is_new = await db.init_registration(callback.from_user.id, callback.from_user.username)
+        if is_new:
+            # Нагадування тим, хто почав реєстрацію, але не завершив заявку —
+            # 24г і 48г від цього моменту. Кожен таск сам перевіряє актуальність при спрацюванні
+            # (send_reminder у api/task_routes.py), тож нічого скасовувати тут не треба.
+            # best-effort: Cloud Tasks зрідка недоступний (503), і через це не варто
+            # валити створення заявника — нагадування другорядні.
+            try:
+                await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 1}, delay_seconds=24 * 3600)
+                await enqueue_task("/tasks/send_reminder", {"doc_id": doc_id, "step": 2}, delay_seconds=48 * 3600)
+            except Exception:
+                logging.exception("send_reminder enqueue failed for %s (документ створено, нагадування пропущено)", doc_id)
 
     # Запускаємо FSM
     await state.set_state(Registration.entering_first_name)

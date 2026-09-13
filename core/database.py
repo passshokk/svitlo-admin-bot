@@ -78,8 +78,14 @@ def generate_svitlo_id() -> str:
     random_suffix = uuid.uuid4().hex[:8]
     return f"SV-{date_prefix}-{random_suffix}"
 
-async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
-    """Створює новий документ ліда в Firebase.
+async def init_registration(tg_id: int, username: str | None) -> tuple[str, bool]:
+    """Створює новий документ заявника в Firebase, одразу на стадії `personal_data`.
+
+    Раніше тут існувала проміжна стадія `lead`, яку заводили ще на кліку
+    «Хочу зареєструватись» (до того, як людина взагалі почала анкету) —
+    вона спотворювала конверсію: не кожен, хто натиснув кнопку, робив хоча б
+    мінімальний наступний крок. Тепер документ і сам відлік конверсії
+    з'являються лише на кліку «Почати реєстрацію» (bot/reg_funnel.py::start_entering_data).
 
     Ініціалізує всі колонки профілю студента (Flat Schema) із забезпеченням коректного відображення в Rowy.
 
@@ -88,8 +94,8 @@ async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
         username: Юзернейм у Telegram (якщо є).
 
     Returns:
-        tuple[str, bool]: (ID документа у Firestore, чи це новостворений лід — False, якщо юзер
-        просто повторно тиснув «Хочу зареєструватись», маючи вже існуючий документ). Прапорець
+        tuple[str, bool]: (ID документа у Firestore, чи це новостворений документ — False, якщо юзер
+        просто повторно тиснув «Почати реєстрацію», маючи вже існуючий документ). Прапорець
         потрібен викликачу, щоб не заплановувати нагадування (send_reminder) повторно.
     """
     existing = await get_student_by_tg_id(tg_id)
@@ -103,7 +109,7 @@ async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
         "semester": await get_current_semester(),
         "telegramId": tg_id,
         "telegramUsername": username or "",
-        "stage": "lead",
+        "stage": "personal_data",
         "createdAt": now,
         "stageUpdatedAt": now,
         "followupStep": 0, # 0=none, 1=tg reminder 1, 2=tg reminder 2, 3=email reminder
@@ -160,7 +166,7 @@ async def init_lead(tg_id: int, username: str | None) -> tuple[str, bool]:
             await doc_ref.create(payload)
             # Створення заявки: попередньої стадії не існує, тож fromStage
             # свідомо порожній — це не втрачене значення, а його відсутність.
-            await _log_stage_event(custom_doc_id, "lead", now)
+            await _log_stage_event(custom_doc_id, "personal_data", now)
             return custom_doc_id, True
         except AlreadyExists:
             # У разі колізії цикл одразу генерує новий ID та повторює спробу
@@ -267,6 +273,19 @@ async def update_crm_stage(doc_id: str, next_stage: str, reason: str = "",
 
     await db.collection('Svitlo').document(doc_id).update(payload)
     await _log_stage_event(doc_id, next_stage, now, from_stage=from_stage, reason=reason)
+
+async def delete_student(doc_id: str):
+    """Видаляє документ заявника з `Svitlo` повністю.
+
+    Використовується при скасуванні реєстрації (`reg_restart`): за новим
+    визначенням воронки документ узагалі не мав би існувати, якщо людина не
+    дійшла бодай до `personal_data`, тож "скасувати" тепер означає прибрати
+    запис, а не відкочувати stage назад (раніше відкочували на вже прибрану
+    стадію `lead`). `StageEvents` НЕ чіпаємо — це append-only лог, і аналітика
+    (core/pipeline.build_funnel) вже вміє рахувати "є подія, немає документа"
+    окремим лічильником (`missing`), а не мовчки губити його.
+    """
+    await db.collection('Svitlo').document(doc_id).delete()
 
 async def increment_rules_mistake(doc_id: str):
     """Атомарно інкрементує лічильник неправильних відповідей у квізі правил."""

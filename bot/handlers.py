@@ -270,12 +270,12 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     house_name = (data.get("house") or "").strip()
 
     if not house_name or house_name == "Newbie":
-        await ut.safe_edit_text(callback.message, "🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_main_menu())
+        await ut.safe_edit_text(callback.message, "🌱 Оскільки ти нещодавно з нами, ти ще ймовірно <b>не був розподілений у свій Хаус.</b> Очікуй на івент призначення нових учасників у Хауси впродовж цього семестру!", reply_markup=kb.get_back_to_menu_kb())
         return
 
     target_chat_id = cfg.HOUSE_CHATS.get(house_name)
     if not target_chat_id:
-        await ut.safe_edit_text(callback.message, f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора.", reply_markup=kb.get_pasha_curator_keyboard())
+        await ut.safe_edit_text(callback.message, f"❌ Твій хаус ({house_name}) знайдено, але група ще не налаштована. Звернись до куратора", reply_markup=kb.get_pasha_curator_keyboard())
         return
 
     # Прапорець hasHouseAccess означає лише «лінк колись видавали» — не «студент у
@@ -294,7 +294,7 @@ async def clbck_house_smart_access(callback: CallbackQuery):
     if not invite:
         await ut.safe_edit_text(
             callback.message,
-            "❌ Не вдалося створити посилання. Напиши хаус-кураторці ⬇️",
+            "❌ Не вдалося створити посилання. Напиши куратору ⬇️",
             reply_markup=kb.get_pasha_curator_keyboard(),
         )
         return
