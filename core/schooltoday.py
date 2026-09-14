@@ -317,14 +317,24 @@ def merge_custom_data(existing: Iterable[dict] | None,
 # Мапінг Firestore -> SchoolToday
 # ---------------------------------------------------------------------------
 
-def normalize_nickname(value: str | None) -> str:
-    """Нікнейми в базі записані по-різному — половина з '@', половина без.
+_TG_LINK_PREFIX = re.compile(r"^(?:https?://)?(?:www\.)?t(?:elegram)?\.me/", re.IGNORECASE)
 
-    Канонічна форма — БЕЗ '@': так значення однакове з тим, що лежить у
-    Firestore (`telegramUsername`), тож синк не бачить вічної розбіжності,
-    і так його зручніше копіювати в пошук Telegram.
+
+def normalize_nickname(value: str | None) -> str:
+    """Нікнейми в базі записані по-різному — половина з '@', половина без,
+    а деякі кураторки вставляють у поле ЛІНК на телеграм замість хендла.
+
+    Канонічна форма — БЕЗ '@' і без t.me-префікса: так значення однакове з
+    тим, що лежить у Firestore (`telegramUsername`), тож синк не бачить
+    вічної розбіжності, і так його зручніше копіювати в пошук Telegram.
+    Без цього кроку картка (svitlo_admin_panel/templates/_profile_modal.html)
+    показувала б "@https://t.me/xxx" і невалідний href — лінк на лінк.
     """
-    return (value or "").strip().lstrip("@")
+    # "@" знімаємо і до, і після зрізання t.me-префікса: трапляються і
+    # "@https://t.me/handle", і "t.me/@handle".
+    value = (value or "").strip().lstrip("@")
+    value = _TG_LINK_PREFIX.sub("", value)
+    return value.lstrip("@").strip()
 
 
 def _as_date(value: Any) -> str | None:
