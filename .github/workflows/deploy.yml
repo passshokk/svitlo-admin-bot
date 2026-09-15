@@ -49,14 +49,14 @@ jobs:
         gcloud services enable cloudscheduler.googleapis.com --quiet || true
         gcloud scheduler jobs create http admin-review-digest \
           --location=europe-west3 \
-          --schedule="0 9,21 * * *" \
+          --schedule="0 9 * * *" \
           --time-zone="Europe/Kyiv" \
           --uri="${{ secrets.SERVICE_URL }}/tasks/admin_review_digest" \
           --http-method=POST \
           --attempt-deadline=60s \
         || gcloud scheduler jobs update http admin-review-digest \
           --location=europe-west3 \
-          --schedule="0 9,21 * * *" \
+          --schedule="0 9 * * *" \
           --time-zone="Europe/Kyiv" \
           --uri="${{ secrets.SERVICE_URL }}/tasks/admin_review_digest" \
           --http-method=POST \

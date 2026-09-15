@@ -144,7 +144,7 @@ LATIN_GIVEN = {_translit(n) for n in GIVEN_NAMES} | LATIN_GIVEN_EXTRA
 # Стадії, на яких заявка ще проходить реєстрацію: порожні firstName/lastName/
 # email/ageGroup у них очікувані, а не дефект. Заповнені поля все одно
 # перевіряємо на регістр, пробіли тощо.
-INCOMPLETE_STAGES = ("lead", "personal_data")
+INCOMPLETE_STAGES = ("personal_data",)
 
 # Категорії, які ми свідомо прийняли й не вважаємо дефектом. Без цього списку
 # аудит показує 244 «проблеми», з яких справжніх чотири — і його перестають читати.

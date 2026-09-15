@@ -17,7 +17,7 @@ Think of it as the school's front desk, ID check, and internal helpdesk, all run
 - **Controls who can do what.** Students, teachers, IT team members, prefects, and other roles each see a different set of bot features.
 - **Runs a helpdesk.** Anyone can open a support ticket from the bot; it lands in a dedicated thread in the staff chat, gets escalated if it sits too long unanswered, and can be rated afterwards.
 - **Keeps records in sync.** Student records live in the bot's own database, but the school also uses a separate system ("SchoolToday") for administration — the bot pushes updates there automatically and flags anything a staff member edited by hand, so nothing gets silently overwritten.
-- **Automates chores.** Reminding leads who didn't finish signing up, promoting students to the next age group on their 14th birthday, notifying staff of pending reviews — all on autopilot.
+- **Automates chores.** Reminding applicants who started registering but didn't finish, promoting students to the next age group on their 14th birthday, notifying staff of pending reviews — all on autopilot.
 
 ## How it's built, in plain terms
 
@@ -109,8 +109,8 @@ This statelessness requirement runs through the whole codebase — no global var
 
 | Collection | Purpose |
 |---|---|
-| `Svitlo` | The core table: one flat document per lead/student, doc ID format `SV-YYMMDD-XXXXXXXX`. Holds personal info, parent/guardian info, stage, roles, SchoolToday linkage IDs, AI verification results, everything. |
-| `StageEvents` | Append-only log of every stage transition (`lead` → `personal_data` → … → `student`/`blocked`). `Svitlo.stage` only holds the *current* stage, so this is the only place funnel-conversion history exists. |
+| `Svitlo` | The core table: one flat document per applicant/student, doc ID format `SV-YYMMDD-XXXXXXXX`. Holds personal info, parent/guardian info, stage, roles, SchoolToday linkage IDs, AI verification results, everything. |
+| `StageEvents` | Append-only log of every stage transition (`personal_data` → … → `student`/`blocked`). `Svitlo.stage` only holds the *current* stage, so this is the only place funnel-conversion history exists. |
 | `SupportCentreTickets` | Helpdesk tickets — category, linked forum thread ID, message history, status, curator, NPS rating. |
 | `FSM_Sessions` | aiogram conversation state, described above. |
 | `Config/bot_settings` | A single settings document: current semester, term start date, the tester allow-list, and whether registration is currently open. |
@@ -122,7 +122,7 @@ This statelessness requirement runs through the whole codebase — no global var
 The registration flow (`bot/reg_funnel.py`, states defined in `bot/states.py`) is a **linear, resumable** form: personal details → location/displacement status → parent/guardian details → lead source → health disclosures → a short school-rules quiz → document scan → staff review. Every answer is written straight to the `Svitlo` document (flat schema, not nested) as soon as it's collected, so a user can close Telegram mid-form and pick back up exactly where they left off — state comes from Firestore, not from memory.
 
 Access control is stage- and role-driven, not command-based:
-- `stage` moves a user through `lead` → `personal_data` → `admin_review` → `student` (or `blocked`, `alumni`).
+- `stage` moves a user through `personal_data` → `rules_matching` → `uploading_docs` → `admin_review` → `student` (or `blocked`, `alumni`). A document is only created once someone taps "Start registration" — there's no earlier "lead" stage; a person who only tapped "I want to register" but never started the form leaves no record at all.
 - `roles` is a free-form list (`itt`, `scl`, `buddy`, `prefect`, `student`, plus staff-only roles like `boss`/`teacher`) read straight from Firestore on every request via `LoadDataMiddleware`.
 - `RequireAuthMiddleware` is the actual gate on the private router: active students/alumni or staff roles pass; anyone else gets bounced into an email-sync prompt or a "finish registering first" message.
 
@@ -147,7 +147,7 @@ Telegram (and Cloud Run) expect a webhook to respond immediately — a slow hand
 | Endpoint | Job |
 |---|---|
 | `/tasks/schooltoday_enroll` | Enrolls an approved student into SchoolToday (idempotent via `externalID`; permanent 4xx failures don't retry, 5xx/network errors do) |
-| `/tasks/send_reminder` | 24h/48h nudges to leads who started but didn't finish registering |
+| `/tasks/send_reminder` | 24h/48h nudges to applicants who started but didn't finish registering |
 | `/tasks/sla_check` | Escalates a support ticket to the main curator if it's gone 30 minutes unanswered |
 | `/tasks/export_notion` | Pushes data to Notion |
 | `/tasks/delete_messages` | Background bulk message cleanup |

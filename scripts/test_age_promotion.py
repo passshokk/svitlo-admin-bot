@@ -45,7 +45,7 @@ docs = [
     {"_id": "A", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # 14 -> перевести
     {"_id": "B", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2014, 1, 1, 12, tzinfo=timezone.utc)},   # 12 -> ні
     {"_id": "C", "ageGroup": "older",   "stage": "student", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # вже older
-    {"_id": "D", "ageGroup": "younger", "stage": "lead",    "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # не зарахований
+    {"_id": "D", "ageGroup": "younger", "stage": "personal_data", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # не зарахований
     {"_id": "E", "ageGroup": "younger", "stage": "student", "birthDate": None},                                            # без ДН
     {"_id": "F", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2005, 1, 1, 12, tzinfo=timezone.utc)},   # 21 -> аномалія, але перевести
 ]
