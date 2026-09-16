@@ -210,7 +210,7 @@ async def verify_for_access(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     student = student_ctx.get()
 
-    # 1. Юзера взагалі немає в БД (старий зі SchoolToday) -> Відправляємо на лінковку
+    # 1. Юзера взагалі немає в БД -> Відправляємо на лінковку
     if not student:
         await state.set_state(Registration.waiting_email)
         await state.update_data(emailFlowSource="verify_btn_no_student")
@@ -702,13 +702,14 @@ async def cancel_email_input(message: Message, state: FSMContext):
 async def process_email_input(message: Message, state: FSMContext):
     user_id = message.from_user.id
     email = message.text.lower().strip()
+
     if not re.match(cfg.EMAIL_REGEX, email):
         await message.answer(
             "<b>Іу, це не схоже на email.. Спробуй ще раз!</b>\n"
             "Правильний формат: <code>user@gmail.com</code>",
             parse_mode="HTML"
         )
-        return # Стан залишається, чекаємо далі
+        return
 
     student = await db.get_student_by_email(email)
     if not student:
@@ -719,67 +720,71 @@ async def process_email_input(message: Message, state: FSMContext):
             reply_markup=kb.get_pasha_curator_keyboard()
         )
         return
-        
+
     data = student['data']
-    age_value = data.get("ageGroup")
-    target_chat_id = cfg.GROUPS_MAPPING.get(age_value)
+    tg_id = data.get("telegramId")
 
-    if data.get("hasGroupAccess") is True:
-        if not data.get("telegramId") or data.get("telegramId") == 0:
-            await db.link_telegram_id(student['id'], user_id)
-
-            student_ctx.set(student)
-            user_roles_ctx.set(data.get('roles', []))
-
-            await message.answer("✅ <b>Твій акаунт успішно синхронізовано</b>", reply_markup=ReplyKeyboardRemove())
-            await message.answer("<b>Вітаю у SvitloMenu!</b> Вибирай:", reply_markup=kb.get_main_menu())
-        elif target_chat_id and not await _is_chat_member_present(target_chat_id, user_id):
-            # Прапорець hasGroupAccess каже лише «лінк колись видавали» — не «студент
-            # у чаті». Тому звіряємось із фактичним членством, перш ніж відмовляти:
-            # загубив лінк / вийшов / кікнули -> видаємо новий, а не глухий відказ.
-            invite = await _issue_one_time_invite(target_chat_id, label=f"group:{student['id']}")
-            if not invite:
-                await message.answer("❌ Не вдалося створити посилання. Звернись до куратора ⬇️", reply_markup=kb.get_pasha_curator_keyboard())
-            else:
-                student_ctx.set(student)
-                user_roles_ctx.set(data.get('roles', []))
-                await message.answer(
-                    f"<b>Тебе не знайдено в чаті групи — ось нове одноразове посилання:</b>\n{invite.invite_link}",
-                    parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
-                )
-                await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
-        else:
-            await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", reply_markup=kb.get_back_to_menu_kb())
+    # Перевірка на конфлікт акаунтів
+    if tg_id and tg_id != 0 and tg_id != user_id:
+        await message.answer(
+            "<b>❌ Цей email прив'язано до іншого Telegram-акаунта.</b>\n"
+            "Якщо це твоя пошта — звернись до куратора ⬇️",
+            parse_mode="HTML",
+            reply_markup=kb.get_pasha_curator_keyboard()
+        )
         await state.clear()
         return
 
+    tg_linked = False
+    if not tg_id or tg_id == 0:
+        await db.link_telegram_id(student['id'], user_id)
+        data["telegramId"] = user_id
+        tg_linked = True
+
+    student_ctx.set(student)
+    user_roles_ctx.set(data.get('roles', []))
+
+    target_chat_id = cfg.GROUPS_MAPPING.get(data.get("ageGroup"))
     if not target_chat_id:
         await message.answer("❌ Не вдалося визначити твою вікову групу", reply_markup=kb.get_pasha_curator_keyboard())
         await state.clear()
         return
 
-    invite = await _issue_one_time_invite(target_chat_id, label=f"group:{student['id']}")
-    if not invite:
-        await message.answer("❌ Технічна помилка при генерації посилання", reply_markup=kb.get_pasha_curator_keyboard())
+    # Перевірка фактичної присутності в групі
+    in_chat = await _is_chat_member_present(target_chat_id, user_id)
+
+    # 1. Користувач уже в групі
+    if in_chat:
+        if tg_linked:
+            await message.answer("✅ <b>Твій акаунт успішно синхронізовано!</b>", reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+        else:
+            await message.answer("<b>⚠️ Доступ до групи вже було надано.</b>", reply_markup=kb.get_back_to_menu_kb(), parse_mode="HTML")
+        
+        await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu(), parse_mode="HTML")
         await state.clear()
         return
 
-    await db.grant_access_to_student(student['id'], user_id)
+    # 2. Користувача немає в групі -> потрібен інвайт
+    invite = await _issue_one_time_invite(target_chat_id, label=f"group:{student['id']}")
+    if not invite:
+        await message.answer("❌ Не вдалося створити посилання. Звернись до куратора ⬇️", reply_markup=kb.get_pasha_curator_keyboard())
+        await state.clear()
+        return
 
-    student_ctx.set(student)
-    user_roles_ctx.set(data.get('roles', []))
+    if data.get("hasGroupAccess"):
+        text = (f"<b>Тебе не знайдено в чаті групи — ось нове одноразове посилання:</b>\n{invite.invite_link}") 
+    else:
+        raw_name = data.get("firstName") or "Студенте"
+        name = str(raw_name).strip().title()
+        text = f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n<b>Твоє одноразове посилання: {invite.invite_link}</b>"
 
+        await db.grant_access_to_student(student['id'], user_id)
+        data["hasGroupAccess"] = True
+
+    await message.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+    await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu(), parse_mode="HTML")
     await state.clear()
 
-    raw_name = data.get("firstName", "Учень")
-    name = str(raw_name).strip().title()
-    await message.answer(
-        f"<b>✅ Вітаю, {name}! Твій акаунт успішно зареєстровано.</b>\n\n"
-        f"<b>Твоє одноразове посилання: {invite.invite_link}</b>",
-        parse_mode="HTML", reply_markup=ReplyKeyboardRemove()
-    )
-
-    await message.answer("<b>Це — SvitloMenu!</b> Вибирай потрібний пункт:", reply_markup=kb.get_main_menu())
 
 # endregion =====================================================
 # region SUPPORT CENTRE

@@ -181,8 +181,8 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="📱 Socials", callback_data="socials")
     builder.button(text="⁉️ FAQ — Frequent Questions", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
     builder.button(text="📜 Rules and Culture", url="https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21")
-    builder.button(text="🆘 Svitlo Support Centre", callback_data="support_menu")
     builder.button(text="💌 Mental Support", url="https://forms.gle/MGyGav2krG1x7x8DA")
+    builder.button(text="🆘 Svitlo Support Centre", callback_data="support_menu")
 
     builder.adjust(1)
     return builder.as_markup()
