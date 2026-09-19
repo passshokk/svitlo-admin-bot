@@ -3,7 +3,7 @@ import os
 import hmac
 import hashlib
 import json
-import base64
+
 import re
 import time
 from urllib.parse import parse_qsl

@@ -284,10 +284,25 @@ async def main(argv: list[str] | None = None):
     stats = collections.Counter()
     samples = collections.defaultdict(list)
     field_counts = collections.Counter()
+    # (doc_id, старий stPupilId, новий) — записи, де ШС перестворив картку
+    # під тим самим externalID і видав НОВИЙ id. Раніше такий запис просто
+    # тонув у "учня немає у ШС": пошук ішов лише по вже завантаженому
+    # словнику `pupils`, а живий find_pupil(externalID) — той самий виклик,
+    # яким upsert_pupil() знаходить учня при першому зарахуванні — тут
+    # узагалі не викликався. Розбіжність фіксувалась один раз і лишалась
+    # назавжди, бо жоден наступний синк її не лікував.
+    id_corrections: list[tuple[str, int, int]] = []
 
     for doc in docs:
         st_id = doc.get("stPupilId")
         pupil = pupils.get(st_id) if st_id else None
+        if st_id and not pupil:
+            pupil = await st.find_pupil(doc["_id"])
+            if pupil:
+                st_id = pupil["id"]
+                pupils[st_id] = pupil
+                id_corrections.append((doc["_id"], doc.get("stPupilId"), st_id))
+                stats["stPupilId застарів, перепідхоплено"] += 1
         if not pupil:
             stats["учня немає у ШС"] += 1
             continue
@@ -380,6 +395,18 @@ async def main(argv: list[str] | None = None):
                 print(f"      {doc['_id']}: {patch}")
         print()
 
+    if id_corrections:
+        print("\n" + "=" * 74)
+        print("ЗАСТАРІЛИЙ stPupilId — ШС ВІДДАВ ІНШИЙ ЗА ТИМ САМИМ externalID")
+        print("=" * 74)
+        print("Найімовірніше, картку в ШС перестворили (дублікат, ручне виправлення)")
+        print("під тим самим externalID, і вона отримала новий id. Без цього кроку")
+        print("розбіжність лишалась би назавжди — жоден наступний синк її сам не бачив.\n")
+        for doc_id, old_id, new_id in id_corrections[:20]:
+            print(f"  {doc_id}: {old_id} → {new_id}")
+        if len(id_corrections) > 20:
+            print(f"  … і ще {len(id_corrections) - 20}")
+
     print("\n" + "=" * 74)
     for key, value in stats.items():
         print(f"  {value:>5}  {key}")
@@ -391,6 +418,15 @@ async def main(argv: list[str] | None = None):
     if not args.apply:
         print("\nПробний прогін. Щоб застосувати — додай --apply")
         return
+
+    if id_corrections:
+        print(f"\nВиправляю stPupilId у Firestore ({len(id_corrections)})…")
+        for start in range(0, len(id_corrections), BATCH_SIZE):
+            batch = db.batch()
+            for doc_id, _old_id, new_id in id_corrections[start:start + BATCH_SIZE]:
+                batch.update(db.collection("Svitlo").document(doc_id), {"stPupilId": new_id})
+            await batch.commit()
+        print(f"  {len(id_corrections)}/{len(id_corrections)}")
 
     print("\nОновлюю картки учнів…")
     errors = []
