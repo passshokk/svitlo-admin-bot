@@ -32,7 +32,7 @@ DOC = {
     "parentEmail": "s.merkulova@gmail.com", "parentPhone": "978815630",
     "leadSource": "Instagram",
     "hasHealthIssues": False, "healthIssuesDetails": "",
-    "house": "Newbie", "semester": "6_25-26",
+    "house": "Newbie", "semester": "25-26_06",
     "telegramId": 384756291, "telegramUsername": "olesia_m",
 }
 
@@ -68,8 +68,8 @@ async def main():
     existing = [
         {"name": registry["field_name"]["roles"], "value": "SCL;BUDDY"},
         {"name": "Довільне поле школи", "value": "Cambria"},
-        {"name": registry["field_name"]["semester"], "value": "1_00-01"},
-        {"name": registry["field_name"]["semester"], "value": "1_00-01"},
+        {"name": registry["field_name"]["semester"], "value": "00-01_01"},
+        {"name": registry["field_name"]["semester"], "value": "00-01_01"},
     ]
     merged = st.merge_custom_data(existing, await st.build_pupil_custom_data(DOC))
     names = [e["name"] for e in merged]

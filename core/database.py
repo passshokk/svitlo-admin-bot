@@ -447,7 +447,7 @@ _TESTERS_DOC = ("Config", "bot_settings")
 # Значення живе у Firestore, а не в коді: інакше з першим днем нового семестру
 # всі реєстрації тихо отримували б чужу когорту, і помітили б це нескоро —
 # нічого ж не падає.
-_SEMESTER_FALLBACK = "01_26-27"
+_SEMESTER_FALLBACK = "26-27_01"
 
 
 async def get_current_semester() -> str:

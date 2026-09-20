@@ -59,7 +59,7 @@ ROLE_MARKERS = set(ROLE_ORDER)
 # «Джерело ліда» історично містило семестр зарахування, а не джерело.
 # Сентинел для старих учнів — саме `prior_semesters`: його очікує
 # core.utils, а на будь-якому іншому рядку без «_» там падає split.
-SEMESTER_MAP = {"5": "5_25-26", "6-26": "6_25-26"}
+SEMESTER_MAP = {"5": "25-26_05", "6-26": "25-26_06"}
 SEMESTER_LEGACY = "prior_semesters"
 
 GENDER_FROM_ST = {0: "Male", 1: "Female"}
