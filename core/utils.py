@@ -118,7 +118,15 @@ def calculate_age(birth_date, on_date: date | None = None) -> int | None:
 _SEMESTER_OLD = re.compile(r"^(\d{1,2})_(\d{2}-\d{2})$")
 _SEMESTER_NEW = re.compile(r"^(\d{2}-\d{2})_(\d{1,2})$")
 
-# Перенесені учні — не семестр, а позначка «був до того, як ми рахували».
+# Діапазон без номера — `23-26`. Так позначені учні, що прийшли до того, як
+# школа почала рахувати семестри: точного семестру для них немає, є вікно.
+# Формат навмисно той самий `YY-YY`, що й у повного коду, тож сортується він
+# на своєму місці — раніше за будь-який `25-26_NN`.
+_SEMESTER_RANGE = re.compile(r"^(\d{2}-\d{2})$")
+
+# Стара позначка тих самих учнів. У Firestore її вже немає (замінена на
+# діапазон 20.09.2026), але в SchoolToday історичні значення лишаються, і
+# нічого не коштує читати її й далі.
 SEMESTER_LEGACY = "prior_semesters"
 
 
@@ -135,6 +143,11 @@ def format_semester(code) -> str:
     code = code.strip()
     if code == SEMESTER_LEGACY:
         return "many centuries ago..."
+
+    match = _SEMESTER_RANGE.match(code)
+    if match:
+        # Вікно, а не семестр: точнішого ми просто не знаємо.
+        return f"in 20{match.group(1)}"
 
     match = _SEMESTER_NEW.match(code)
     if match:
