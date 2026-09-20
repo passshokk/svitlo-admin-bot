@@ -108,6 +108,50 @@ def calculate_age(birth_date, on_date: date | None = None) -> int | None:
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
 
+# Код семестру існує у ДВОХ формах, і читати треба обидві.
+#
+# Стара — `NN_YY-YY` («01_26-27»), нова — `YY-YY_NN` («26-27_01»). Рік
+# переїхав уперед, щоб коди сортувались хронологічно звичайним порівнянням
+# рядків: у старій формі «01_27-28» лягав між «01_26-27» і «02_26-27».
+# Міграція даних (panel/scripts/migrate_semester_format.py) не миттєва й не
+# дістає до SchoolToday, тож стару форму цей код мусить розуміти й далі.
+_SEMESTER_OLD = re.compile(r"^(\d{1,2})_(\d{2}-\d{2})$")
+_SEMESTER_NEW = re.compile(r"^(\d{2}-\d{2})_(\d{1,2})$")
+
+# Перенесені учні — не семестр, а позначка «був до того, як ми рахували».
+SEMESTER_LEGACY = "prior_semesters"
+
+
+def format_semester(code) -> str:
+    """Код семестру -> фраза для профілю.
+
+    Раніше це був один рядок із `sem.split('_')`, який падав на всьому, що
+    не має підкреслення, і на None — тобто профіль учня без семестру
+    (а такі створюються, якщо календар недоступний) просто не рендерився.
+    """
+    if not isinstance(code, str) or not code.strip():
+        return "at an unknown time"
+
+    code = code.strip()
+    if code == SEMESTER_LEGACY:
+        return "many centuries ago..."
+
+    match = _SEMESTER_NEW.match(code)
+    if match:
+        year, number = match.groups()
+    else:
+        match = _SEMESTER_OLD.match(code)
+        if not match:
+            # Невідома форма: показуємо як є. Профіль із дивним семестром
+            # кращий за профіль, якого немає.
+            return code
+        number, year = match.groups()
+
+    # Номер віддаємо як у коді (без int()): «01» лишається «01», як було
+    # до появи другої форми.
+    return f"in {number} semester 20{year}"
+
+
 def get_profile_text(data: dict) -> str:
     """Генерує HTML-профіль студента точно за новим дизайном та порядком полів"""
     full_name = f"{data.get('firstName', 'Невідомо')} {data.get('lastName', '')}".strip()
@@ -127,12 +171,8 @@ def get_profile_text(data: dict) -> str:
     group = "Older (14-18)" if data.get("ageGroup", "Не визначено") == "older" else "Younger (10-13)"
     house = data.get("house", "Ще не розподілено")
 
-    sem = data.get("semester")
-    if sem == "prior_semesters":
-        joined = "many centuries ago..."
-    else:
-        joined = f"in {sem.split('_')[0]} semester 20{sem.split('_')[1]}"
-        
+    joined = format_semester(data.get("semester"))
+
     user_roles = data.get("roles", [])
 
     roles_list = []
