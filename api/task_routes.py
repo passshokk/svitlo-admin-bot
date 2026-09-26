@@ -1,6 +1,6 @@
 # task_routes.py
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, Response
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -9,7 +9,7 @@ import core.config as cfg
 import core.schooltoday as schooltoday
 from core.bot_init import bot
 from core.error_reporting import report_error
-from core.utils import export_to_notion, calculate_age
+from core.utils import export_to_notion, calculate_age, kyiv_today
 from core.constants import REMINDER_1_MSG, REMINDER_2_MSG, LEAD_WELCOME_MSG
 from bot import keyboards as kb
 from bot.reg_funnel import render_registration_prompt
@@ -119,7 +119,7 @@ async def task_admin_review_digest(request: Request):
             .stream()
         ]
 
-        today = date.today()
+        today = kyiv_today()
         pending_promotion = 0
         async for doc in (
             db.db.collection("Svitlo")

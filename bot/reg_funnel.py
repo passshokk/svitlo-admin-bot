@@ -847,8 +847,9 @@ async def process_field_edit(message: Message, state: FSMContext):
     elif field == "birthDate":
         try:
             dob_obj = datetime.strptime(message.text.strip(), "%d.%m.%Y")
-            today = datetime.now()
-            age = today.year - dob_obj.year - ((today.month, today.day) < (dob_obj.month, dob_obj.day))
+            # Той самий розрахунок, що й при першій реєстрації (ut.calculate_age
+            # — від «сьогодні» за Києвом); досі тут був власний від часу сервера.
+            age = ut.calculate_age(dob_obj)
             if not (10 <= age <= 18):
                 return await ut.step_answer(message, "⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             age_group = "older" if 14 <= age <= 18 else "younger"

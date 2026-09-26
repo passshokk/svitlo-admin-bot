@@ -41,7 +41,7 @@ from core import config as cfg
 from core.bot_init import bot
 from core.constants import AGE_GROUP_MOVE_CB, AGE_PROMOTION_BUTTON, AGE_PROMOTION_MSG
 from core.database import db, get_kyivtime_now
-from core.utils import calculate_age
+from core.utils import calculate_age, kyiv_today
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def select_promotable(docs: list[dict], today: date | None = None):
       * no_birthdate — дату народження не розпарсити, переведення пропущено;
       * anomalies    — підмножина promote з віком > 18 (переводимо, але звірити).
     """
-    today = today or date.today()
+    today = today or kyiv_today()
     promote: list[tuple[dict, int]] = []
     no_birthdate: list[dict] = []
     anomalies: list[tuple[dict, int]] = []
