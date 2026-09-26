@@ -73,6 +73,15 @@ async def safe_delete(message: Message) -> bool:
 # region Format & Check
 # ====================================================================================
 
+def kyiv_today() -> date:
+    """Сьогодні ЗА КИЄВОМ. date.today() на Cloud Run — це UTC-доба: з 00:00
+    до 03:00 за Києвом вона ще вчорашня, і в день народження вік виходив на
+    рік меншим (14-річного не переводило в старшу групу, реєстрація
+    відмовляла 10-річному). Пояс продукту — Europe/Kyiv, як і в панелі
+    (svitlo_admin_panel/core/tz.py)."""
+    return datetime.now(ZoneInfo("Europe/Kyiv")).date()
+
+
 def calculate_age(birth_date, on_date: date | None = None) -> int | None:
     """Повний вік у роках на дату `on_date` (дефолт — сьогодні).
 
@@ -104,7 +113,7 @@ def calculate_age(birth_date, on_date: date | None = None) -> int | None:
         except ValueError:
             return None
 
-    today = on_date or date.today()
+    today = on_date or kyiv_today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
 
