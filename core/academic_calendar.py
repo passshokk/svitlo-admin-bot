@@ -19,22 +19,37 @@
 копіями — звідки береться клієнт Firestore (`core.database` тут,
 `core.firestore_client` у панелі).
 
-Структура документа `Config/academic_calendar` (один на навчальний рік):
+Структура документа `Config/academic_calendar` (один на навчальний рік,
+формат із 26.09.2026 — семестр як широкі межі, періоди всередині):
 
     {
       "year": "2026-27",
       "timezone": "Europe/Kyiv",
-      "segments": [
-        {"kind": "holidays", "from": "2026-09-01", "to": "2026-09-06",
-         "semester": "26-27_01"},
+      "semesters": [
+        {"code": "26-27_01",
+         "from": <14.09.2026 00:00>, "to": <25.10.2026 23:59:59>,   # shopping -> кінець term
+         "periods": [
+           {"kind": "admission", "from": ..., "to": ...},
+           {"kind": "induction", ...}, {"kind": "shopping", ...}, {"kind": "term", ...},
+         ]},
         ...
       ],
+      "breaks": [{"kind": "summer", "from": ..., "to": ..., "semester": "27-28_01"}],
       "analytics": {"velocityBaselineFrom": "...", "trimmedMeanPercent": 5}
     }
 
-Сегменти покривають рік СУЦІЛЬНО, без дірок і перекриттів, і відсортовані
-за датою. `semester` стоїть на КОЖНОМУ сегменті, включно з `holidays` —
-і на канікулах несе код того семестру, який вони ВІДКРИВАЮТЬ.
+Межі семестру (`from`/`to`) — від початку Shopping Week до останнього дня
+навчання, як їх пише школа. Періоди семестру можуть виходити за ці межі:
+набір (`admission`) іде ДО них, різдвяний спецтиждень — ПІСЛЯ, і обидва все
+одно належать цьому семестру. Разом із `breaks` періоди покривають рік
+СУЦІЛЬНО, без дірок і перекриттів.
+
+Старий плаский формат (`segments` зі `semester` на кожному, тип `holidays`
+замість `admission`) досі читається: поки бот не оновлено, документ несе
+обидва, і новий парсер бере `semesters`. Код нижче працює з пласким списком
+сегментів у будь-якому разі — формат документа міняє лише розбір.
+
+Періоди набору несуть код того семестру, який вони ВІДКРИВАЮТЬ.
 
 Це не технічна умовність: набір заявок на семестр стартує з першого дня
 канікул перед ним, тож "семестр" як вікно аналітики = "коли прийшла ця
@@ -58,27 +73,30 @@ KYIV = ZoneInfo("Europe/Kyiv")
 
 CALENDAR_DOC = ("Config", "academic_calendar")
 
-# Типи сегментів. `holidays` — не лише відпочинок: це ще й вікно набору
-# на наступний семестр, див. докстрінг модуля.
+# Типи сегментів. `admission` — міжсеместрова пауза, у яку відкривається
+# набір на наступний семестр (до 26.09.2026 цей тип звався `holidays`, і
+# старі документи з ним досі читаються — див. _KIND_ALIASES).
 #
-# `summer` окремо від `holidays` навмисно. Міжсеместрові канікули — це пауза
-# ВСЕРЕДИНІ року, у яку відкривається набір на наступний семестр. Літні — це
-# кінець року: набору в них немає, і плутати їх у підписах і в
-# next_intake_start() означало б обіцяти набір там, де його не буде.
-# Довжина канікул НЕ стала (6 днів, тиждень, два тижні, 44 дні влітку),
-# тож жодного "рівно тиждень" у коді бути не може — усе з даних.
-KIND_HOLIDAYS = "holidays"
+# `summer` окремо від `admission` навмисно. Міжсеместрова пауза — ВСЕРЕДИНІ
+# року, з набором. Літні канікули — кінець року: набору в них немає, і
+# плутати їх у підписах і в next_intake_start() означало б обіцяти набір
+# там, де його не буде. Довжина пауз НЕ стала (6 днів, тиждень, два тижні,
+# 44 дні влітку), тож жодного "рівно тиждень" у коді бути не може.
+KIND_ADMISSION = "admission"
+KIND_HOLIDAYS = KIND_ADMISSION  # стара назва, лишена для імпортів
 KIND_SUMMER = "summer"
 KIND_INDUCTION = "induction"
 KIND_SHOPPING = "shopping"
 KIND_TERM = "term"
 KIND_CHRISTMAS = "christmas"
-SEGMENT_KINDS = (KIND_HOLIDAYS, KIND_SUMMER, KIND_INDUCTION, KIND_SHOPPING,
+SEGMENT_KINDS = (KIND_ADMISSION, KIND_SUMMER, KIND_INDUCTION, KIND_SHOPPING,
                  KIND_TERM, KIND_CHRISTMAS)
+# Назви типів зі старих документів -> теперішні.
+_KIND_ALIASES = {"holidays": KIND_ADMISSION}
 
 # Канікули в широкому сенсі — "уроків немає". Саме це питання ставить графік
 # трендів, коли малює сіру смугу під просадкою.
-BREAK_KINDS = (KIND_HOLIDAYS, KIND_SUMMER)
+BREAK_KINDS = (KIND_ADMISSION, KIND_SUMMER)
 
 # Місяці в родовому відмінку — саме він потрібен у "7 вересня".
 # Своя таблиця, а не locale: на Cloud Run українська локаль не встановлена,
@@ -172,15 +190,37 @@ class Calendar:
         raw = raw or {}
         self.year: str = (raw.get("year") or "").strip()
         self.analytics: dict = raw.get("analytics") or {}
+        # Широкі межі семестру (Shopping Week -> кінець навчання), як їх
+        # пише школа. Є лише в новому форматі; для старого — див.
+        # semester_bounds(), що виводить їх із сегментів.
+        self.bounds: dict[str, tuple[date, date]] = {}
         segments = []
-        for item in raw.get("segments") or []:
+
+        def add(item, semester):
             if not isinstance(item, dict):
-                continue
+                return
             start, end = _as_date(item.get("from")), _as_date(item.get("to"))
             kind = (item.get("kind") or "").strip()
-            semester = (item.get("semester") or "").strip()
+            kind = _KIND_ALIASES.get(kind, kind)
+            semester = (semester or "").strip()
             if start and end and kind and start <= end:
                 segments.append(Segment(kind, start, end, semester))
+
+        if isinstance(raw.get("semesters"), list):
+            for sem in raw["semesters"]:
+                if not isinstance(sem, dict):
+                    continue
+                code = (sem.get("code") or "").strip()
+                low, high = _as_date(sem.get("from")), _as_date(sem.get("to"))
+                if code and low and high and low <= high:
+                    self.bounds[code] = (low, high)
+                for period in sem.get("periods") or []:
+                    add(period, code)
+            for item in raw.get("breaks") or []:
+                add(item, item.get("semester") if isinstance(item, dict) else "")
+        else:
+            for item in raw.get("segments") or []:
+                add(item, item.get("semester") if isinstance(item, dict) else "")
         segments.sort(key=lambda s: s.start)
         self.segments: list[Segment] = segments
 
@@ -246,6 +286,20 @@ class Calendar:
             return None
         return min(s.start for s in days), max(s.end for s in days)
 
+    def semester_bounds(self, code: str) -> tuple[date, date] | None:
+        """Широкі межі семестру: від початку Shopping Week до останнього дня
+        навчання — так, як семестр називає школа.
+
+        НЕ плутати з semester_range(): той — усе, що належить семестру,
+        включно з набором перед ним, і саме він є вікном когорти для
+        аналітики (заявка, подана на канікулах, — заявка на цей семестр).
+        """
+        if code in self.bounds:
+            return self.bounds[code]
+        shopping = [s.start for s in self.segments if s.semester == code and s.kind == KIND_SHOPPING]
+        term = [s.end for s in self.segments if s.semester == code and s.kind == KIND_TERM]
+        return (min(shopping), max(term)) if shopping and term else None
+
     def semester_containing(self, day: date | None = None) -> str | None:
         segment = self.segment_on(day)
         return segment.semester or None if segment else None
@@ -300,7 +354,7 @@ class Calendar:
         Після останнього семестру функція віддає None, і виклична сторона
         відкочується на ручний `nextRegistrationDate` — дату наступного
         навчального року все одно призначає овнер, а не календар."""
-        segment = self.next_segment(KIND_HOLIDAYS, after)
+        segment = self.next_segment(KIND_ADMISSION, after)
         return segment.start if segment else None
 
     # --- Аналітичні налаштування -----------------------------------------
@@ -344,6 +398,19 @@ class Calendar:
                 problems.append(f"дірка {previous.end} -> {nxt.start} ({gap - 1} дн)")
             elif gap < 1:
                 problems.append(f"перекриття {previous} і {nxt}")
+        # Межі семестру — рівно від Shopping Week до кінця навчання: дві
+        # копії однієї дати в документі мусять збігатись, інакше незрозуміло,
+        # якій вірити.
+        for code, (low, high) in self.bounds.items():
+            shopping = [s.start for s in self.segments if s.semester == code and s.kind == KIND_SHOPPING]
+            term = [s.end for s in self.segments if s.semester == code and s.kind == KIND_TERM]
+            if not shopping or not term:
+                problems.append(f"{code}: немає shopping або term")
+                continue
+            if low != min(shopping):
+                problems.append(f"{code}: межа from {low} ≠ початок Shopping Week {min(shopping)}")
+            if high != max(term):
+                problems.append(f"{code}: межа to {high} ≠ кінець навчання {max(term)}")
         return problems
 
 
