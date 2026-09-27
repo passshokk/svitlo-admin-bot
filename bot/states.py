@@ -13,6 +13,7 @@ class Registration(StatesGroup):
     entering_gender = State()
     entering_dob = State()
     entering_email = State()
+    confirming_email = State()
     entering_phone = State()
 
     entering_country = State()
