@@ -223,12 +223,16 @@ def get_profile_text(data: dict) -> str:
 
     user_roles = data.get("roles", [])
 
-    roles_list = []
+    # «Student» — не роль, а стадія: профіль відкривається лише з
+    # private_router, куди пускає stage student/alumni (bot/middleware.py),
+    # тож рядок стоїть завжди. Роль student із тим самим змістом прибрано
+    # з бази 28.09.2026 — вона лише дублювала stage.
+    roles_list = ["🎓 Student"]
     for role_key in cfg.ROLE_MAP.keys():
         if role_key in user_roles:
             roles_list.append(cfg.ROLE_MAP[role_key])
-            
-    roles_text = "\n".join(roles_list) if roles_list else "Немає призначених ролей"
+
+    roles_text = "\n".join(roles_list)
 
     return (
         f"<code>YOUR SVITLO PROFILE</code>\n\n"

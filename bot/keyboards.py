@@ -4,7 +4,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types.web_app_info import WebAppInfo
 import os
 
-from core.context import user_roles_ctx
 
 # ==========================
 # region --- Registration
@@ -172,8 +171,6 @@ def get_registration_cancel_confirm() -> InlineKeyboardMarkup:
 # region --- /menu
 
 def get_main_menu() -> InlineKeyboardMarkup:
-    roles_list = user_roles_ctx.get()
-    
     builder = InlineKeyboardBuilder()
     builder.button(text="🎓 Your Svitlo Profile", callback_data="my_profile")
     builder.button(text="🏰 Join House Group", callback_data="house")

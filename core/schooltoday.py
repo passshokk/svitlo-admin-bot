@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Iterable
 
 import httpx
@@ -109,8 +109,8 @@ ROLE_SEPARATOR = ";"
 # школи); значення ШС приймає й поза списком, але вибирати їх у картці
 # можна лише зі списку.
 #
-# Свідомо НЕ передаються: `student` (дублює стадію, у ШС усі — учні),
-# `boss` і `teacher` (видача доступу в бот, а не роль учня), будь-що невідоме.
+# Свідомо НЕ передаються: `boss` і `teacher` (видача доступу в бот, а не
+# роль учня), будь-що невідоме.
 ROLE_TO_ST = {
     "scl": "Student Council",
     "buddy": "Buddy",
@@ -125,7 +125,7 @@ ROLE_TO_ST = {
 def roles_value(doc: dict) -> str:
     """Значення поля «Ролі» для ШС: "Student Council;Buddy" або "".
 
-    `roles` після ручної правки в Rowy буває рядком "student, scl" — той самий
+    `roles` після ручної правки в Rowy буває рядком "scl, itt" — той самий
     захист, що в панелі (core/buddy.roles_of)."""
     raw = doc.get("roles") or []
     if isinstance(raw, str):

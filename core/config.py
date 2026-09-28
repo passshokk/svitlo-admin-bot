@@ -35,7 +35,6 @@ ROLE_MAP = {
     "scl": "🏛️ Student Council Member",
     "buddy": "🤝 Buddy",
     "prefect": "📝 Prefect",
-    "student": "🎓 Student"
 }
 
 # LEGACY: раніше всі тікети категорії летіли в один спільний thread. Тепер кожен тікет

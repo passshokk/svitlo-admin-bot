@@ -26,14 +26,13 @@ def check(label, got, want):
     print(f"  [{'OK ' if ok else 'FAIL'}] {label}: {got!r}" + ("" if ok else f"  (очікували {want!r})"))
 
 
-check("лише student -> порожньо", roles_value({"roles": ["student"]}), "")
 check("назви як у панелі, порядок фіксований",
-      roles_value({"roles": ["buddy", "student", "scl"]}), "Student Council;Buddy")
+      roles_value({"roles": ["buddy", "scl"]}), "Student Council;Buddy")
 check("buddy lead/head", roles_value({"roles": ["buddy_head", "buddy_lead"]}), "Buddy Lead;Buddy Head")
-check("gsl передається", roles_value({"roles": ["student", "gsl", "buddy"]}), "Buddy;GSL")
-check("boss не передається", roles_value({"roles": ["student", "prefect", "scl", "itt", "boss"]}),
+check("gsl передається", roles_value({"roles": ["gsl", "buddy"]}), "Buddy;GSL")
+check("boss не передається", roles_value({"roles": ["prefect", "scl", "itt", "boss"]}),
       "Student Council;Prefect;ITT")
-check("рядок після правки в Rowy", roles_value({"roles": "student, scl | itt"}), "Student Council;ITT")
+check("рядок після правки в Rowy", roles_value({"roles": "scl | itt"}), "Student Council;ITT")
 check("невідома роль ігнорується", roles_value({"roles": ["teacher", "whatever"]}), "")
 check("немає поля", roles_value({}), "")
 
