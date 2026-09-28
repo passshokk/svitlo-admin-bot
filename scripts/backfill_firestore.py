@@ -103,7 +103,8 @@ def parse_birthday(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed.replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+    # 00:00 UTC — формат дати без часу з 28.09.2026 (core.utils.birth_date_value)
+    return parsed.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
 
 
 def age_group_for(pupil: dict, names: dict, birth: datetime | None) -> str:

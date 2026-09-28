@@ -24,7 +24,7 @@ DOC = {
     "email": "Olesia.Merkulova@Gmail.com  ",
     "phone": "0671234567",
     "gender": "Female",
-    "birthDate": datetime(2010, 10, 20, 12, tzinfo=timezone.utc),
+    "birthDate": datetime(2010, 10, 20, tzinfo=timezone.utc),
     "ageGroup": "older",
     "country": "Україна", "city": "Київ",
     "isDisplaced": True, "displacedRegion": "Донецька область",

@@ -59,6 +59,7 @@ def actual_from_st(pupil: dict, parent: dict | None, names: dict) -> dict:
     values = {
         "firstName": (pupil.get("firstName") or "").strip(),
         "lastName": (pupil.get("lastName") or "").strip(),
+        "birthday": (pupil.get("birthday") or "")[:10],
         "gender": pupil.get("gender"),
         "classID": pupil.get("classID"),
         "pupilTypeID": pupil.get("pupilTypeID"),
@@ -85,7 +86,8 @@ def synced_state(pupil: dict, parent: dict | None, names: dict,
     потім щоразу бачити хибне «поправили руками».
     """
     state = actual_from_st(pupil, parent, names)
-    for field in ("firstName", "lastName", "gender", "classID", "pupilTypeID", "phoneNumber"):
+    for field in ("firstName", "lastName", "birthday", "gender", "classID", "pupilTypeID",
+                  "phoneNumber"):
         if field in patch:
             state[field] = patch[field]
     state.update(custom_updates)
@@ -101,6 +103,7 @@ def owned_values(doc: dict, names: dict, registry: dict) -> dict:
     return {
         "firstName": (doc.get("firstName") or "").strip(),
         "lastName": (doc.get("lastName") or "").strip(),
+        "birthday": st._as_date(doc.get("birthDate")) or "",
         "gender": GENDER_TO_ST.get(doc.get("gender")),
         "classID": registry["class_id"].get(class_name) if class_name else None,
         "pupilTypeID": registry["pupil_type_id"].get((doc.get("house") or "").strip()),
@@ -152,6 +155,13 @@ async def pupil_patch(doc: dict, pupil: dict, names: dict, registry: dict,
         value = (doc.get(ours) or "").strip()
         if value and value != (pupil.get(theirs) or "").strip():
             patch[theirs] = value
+
+    # Дата народження досі їхала в ШС лише раз — при зарахуванні, тож
+    # виправлення у Firestore (і одрук на кшталт року «0015» у ШС) там
+    # лишались назавжди. Порожню нашу дату не пушимо, як і решту полів.
+    birthday = st._as_date(doc.get("birthDate"))
+    if birthday and birthday != (pupil.get("birthday") or "")[:10]:
+        patch["birthday"] = birthday
 
     gender = GENDER_TO_ST.get(doc.get("gender"))
     if gender is not None and gender != pupil.get("gender"):

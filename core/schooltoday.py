@@ -24,7 +24,7 @@ from typing import Any, Iterable
 
 import httpx
 
-from core.utils import normalize_phone
+from core.utils import kyiv_date, normalize_phone
 
 log = logging.getLogger(__name__)
 
@@ -338,14 +338,12 @@ def normalize_nickname(value: str | None) -> str:
 
 
 def _as_date(value: Any) -> str | None:
-    if not value:
-        return None
-    if isinstance(value, str):
-        return value[:10]
-    if isinstance(value, (datetime, date)):
-        return value.strftime("%Y-%m-%d")
-    strftime = getattr(value, "strftime", None)  # Firestore Timestamp
-    return strftime("%Y-%m-%d") if strftime else None
+    """Дата без часу -> "YYYY-MM-DD" для ШС. Через kyiv_date, а не strftime
+    на сирому Timestamp: той давав UTC-добу, і дата, внесена руками як
+    «північ» у консолі, їхала в ШС на день раніше (так вийшло 04.07 замість
+    05.07 у SV-260824-0069f3a7)."""
+    day = kyiv_date(value)
+    return day.isoformat() if day else None
 
 
 def _yes_no(value: Any) -> str:

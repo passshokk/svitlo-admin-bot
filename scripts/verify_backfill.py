@@ -23,6 +23,7 @@ load_dotenv()
 
 from core import schooltoday as st  # noqa: E402
 from core.database import db  # noqa: E402
+from core.utils import kyiv_date  # noqa: E402
 from core.utils import normalize_phone  # noqa: E402
 from scripts.backfill_firestore import (  # noqa: E402
     COLLECTION, LEGACY_CSV, SEMESTER_MAP, SEMESTER_LEGACY, SKIP_ST_IDS,
@@ -155,7 +156,7 @@ async def main():
         birth_want = parse_birthday(pupil.get("birthday"))
         birth_got = data.get("birthDate")
         if birth_want and birth_got:
-            if birth_want.date() != birth_got.date():
+            if birth_want.date() != kyiv_date(birth_got):
                 bad.append(("birthDate", birth_got, birth_want))
         elif birth_want or birth_got:
             bad.append(("birthDate", birth_got, birth_want))

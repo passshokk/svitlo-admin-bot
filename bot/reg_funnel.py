@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 
 from core import database as db
 from core.database import db as firestore_client
@@ -392,8 +392,8 @@ async def process_dob(message: Message, state: FSMContext):
             
         age_group = "older" if 14 <= age <= 18 else "younger" if 10 <= age <= 13 else "error"
         
-        # Встановлюємо 12:00 UTC, щоб уникнути багів зміни дня через таймзони
-        dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
+        # 00:00 UTC цього дня (ut.birth_date_value); читачі беруть київську дату
+        dob_timestamp = ut.birth_date_value(dob_obj.date())
         
         # Тепер в FSM лежить нативний об'єкт datetime
         await state.update_data(birthDate=dob_timestamp, ageGroup=age_group)
@@ -773,7 +773,8 @@ def _build_confirmation_summary(data: dict) -> str:
     health_txt = f"Так ({ut.esc_html(data.get('healthIssuesDetails'))})" if data.get('hasHealthIssues') else "Ні"
     disp_txt = f"Так ({data.get('displacedRegion')})" if data.get('isDisplaced') else "Ні"
     dob_obj = data.get('birthDate')
-    dob_str = dob_obj.strftime("%d.%m.%Y") if hasattr(dob_obj, "strftime") else "Не вказано"
+    dob_day = ut.kyiv_date(dob_obj)
+    dob_str = dob_day.strftime("%d.%m.%Y") if dob_day else "Не вказано"
 
     return (
         "<b>Перевір свої дані перед збереженням:</b>\n\n"
@@ -853,7 +854,7 @@ async def process_field_edit(message: Message, state: FSMContext):
             if not (10 <= age <= 18):
                 return await ut.step_answer(message, "⚠️ Твій вік виходить за рамки стандартних програм Svitlo (10-13 та 14-18). Будь ласка, перевір правильність дати (ДД.ММ.РРРР)")
             age_group = "older" if 14 <= age <= 18 else "younger"
-            dob_timestamp = dob_obj.replace(hour=12, tzinfo=timezone.utc)
+            dob_timestamp = ut.birth_date_value(dob_obj.date())
             await state.update_data(birthDate=dob_timestamp, ageGroup=age_group)
         except ValueError:
             return await ut.step_answer(message, "⚠️ Неправильний формат дати. Використовуй формат ДД.ММ.РРРР (наприклад, 24.08.2011)")
