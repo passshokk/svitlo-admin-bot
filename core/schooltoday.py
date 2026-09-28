@@ -90,15 +90,48 @@ FIELD_IDS = {
 # що вже є в нативних полях (House дублював pupilTypeID, вікова група виводиться
 # з classID та birthDate). Школа видалила обидва поля в налаштуваннях.
 #
-# «roles» веде школа — ми його лише читаємо й переносимо при повній заміні масиву.
+# «roles» з 28.09.2026 теж веде Firestore (ролі проставляють у панелі), а не
+# школа: у ШС поле було порожнім у всіх, крім тестової картки, тож затирати
+# там нічого.
 WRITABLE_FIELDS = (
     "health", "health_details", "lead_source",
-    "tg_nickname", "tg_id", "semester", "idp", "idp_region",
+    "tg_nickname", "tg_id", "semester", "idp", "idp_region", "roles",
 )
 
 GENDER = {"Male": 0, "Female": 1}
 CLASS_BY_AGE_GROUP = {"older": "Older Student", "younger": "Younger Student"}
 ROLE_SEPARATOR = ";"
+
+# Svitlo.roles -> варіант поля «Ролі» в ШС, у цьому порядку. Назви — ті самі,
+# що бачать куратори в панелі (svitlo_admin_panel/core/i18n.py, role.*), а не
+# старі SCL / BUDDY / PREFECT капсом. Варіанти в налаштуваннях поля в ШС
+# мають збігатися з цими назвами (через API їх не змінити — лише в інтерфейсі
+# школи); значення ШС приймає й поза списком, але вибирати їх у картці
+# можна лише зі списку.
+#
+# Свідомо НЕ передаються: `student` (дублює стадію, у ШС усі — учні),
+# `boss` і `teacher` (видача доступу в бот, а не роль учня), будь-що невідоме.
+ROLE_TO_ST = {
+    "scl": "Student Council",
+    "buddy": "Buddy",
+    "buddy_lead": "Buddy Lead",
+    "buddy_head": "Buddy Head",
+    "prefect": "Prefect",
+    "itt": "ITT",
+    "gsl": "GSL",
+}
+
+
+def roles_value(doc: dict) -> str:
+    """Значення поля «Ролі» для ШС: "Student Council;Buddy" або "".
+
+    `roles` після ручної правки в Rowy буває рядком "student, scl" — той самий
+    захист, що в панелі (core/buddy.roles_of)."""
+    raw = doc.get("roles") or []
+    if isinstance(raw, str):
+        raw = raw.replace("|", ",").split(",")
+    have = {str(r).strip().lower() for r in raw if str(r).strip()}
+    return ROLE_SEPARATOR.join(label for key, label in ROLE_TO_ST.items() if key in have)
 
 
 class STError(Exception):
@@ -297,8 +330,7 @@ def merge_custom_data(existing: Iterable[dict] | None,
     """Зливає наші значення з тим, що вже лежить на картці.
 
     Масив замінюється цілком, тому надіслати лише свої поля означає видалити
-    чужі — насамперед «Ролі», які веде школа, і будь-яке поле, заведене після
-    написання цього коду.
+    чужі — будь-яке поле, яке школа завела сама (після написання цього коду).
 
     Побічно схлопує дублікати: у 214 карток одне й те саме поле записане по
     кілька разів з однаковим значенням.
@@ -369,6 +401,7 @@ async def build_pupil_custom_data(doc: dict) -> dict[str, str]:
         "semester": doc.get("semester") or "",
         "idp": _yes_no(doc.get("isDisplaced")),
         "idp_region": doc.get("displacedRegion") or "",
+        "roles": roles_value(doc),
     }
     return {name[alias]: values[alias] for alias in WRITABLE_FIELDS if values[alias]}
 

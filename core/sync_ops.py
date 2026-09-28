@@ -18,10 +18,13 @@ Firestore — джерело істини. Синхронізація одноб
   * email — ШС застосовує його лише поки немає доступу, а 164 картки батьків
     ділять пошту з дитиною і можуть впертись у валідацію;
   * grantAccess батькам — за рішенням команди поки не вмикаємо;
-  * кастомне поле «Ролі» — його веде школа, ми лише читаємо й переносимо.
+
+«Ролі» з 28.09.2026 веде Firestore (Svitlo.roles, проставляються в панелі),
+а синк переносить їх у ШС назвами з st.ROLE_TO_ST. Знята в панелі роль
+знімається й у ШС.
 
 Прапорець `--strict` вмикає повну заміну `customData`: у ШС лишається рівно те,
-що є у Firestore, плюс «Ролі». Усе інше зникає — так чистяться і застарілі
+що є у Firestore. Усе інше зникає — так чистяться і застарілі
 значення, і дублікати. «House» та «Вікова група» при цьому очищаються навмисно:
 це копії нативних `pupilTypeID` і `classID`, які підлягають видаленню в
 налаштуваннях школи.
@@ -66,7 +69,7 @@ def actual_from_st(pupil: dict, parent: dict | None, names: dict) -> dict:
         "phoneNumber": normalize_phone(pupil.get("phoneNumber")) or "",
     }
     for alias in ("health", "health_details", "lead_source",
-                  "tg_nickname", "tg_id", "semester", "idp", "idp_region"):
+                  "tg_nickname", "tg_id", "semester", "idp", "idp_region", "roles"):
         values[names[alias]] = custom.get(names[alias], "")
     values["_parent"] = {
         "firstName": (parent.get("firstName") or "").strip() if parent else "",
@@ -116,6 +119,7 @@ def owned_values(doc: dict, names: dict, registry: dict) -> dict:
         names["semester"]: (doc.get("semester") or "").strip(),
         names["idp"]: "Так" if doc.get("isDisplaced") else "Ні",
         names["idp_region"]: (doc.get("displacedRegion") or "").strip(),
+        names["roles"]: st.roles_value(doc),
         "_parent": {
             "firstName": (doc.get("parentFirstName") or "").strip(),
             "lastName": (doc.get("parentLastName") or "").strip(),
@@ -141,7 +145,8 @@ def parent_key(parent_id: int, phone: str) -> str:
 # масиву їх треба явно переносити зі старої картки — інакше вони зітруться.
 # «House» і «Вікова група» сюди НЕ входять: це застарілі копії нативних полів
 # (pupilTypeID та classID), які підлягають видаленню в налаштуваннях школи.
-SCHOOL_OWNED = ("roles",)
+# «Ролі» тут були до 28.09.2026 — тепер їх веде Firestore.
+SCHOOL_OWNED: tuple[str, ...] = ()
 
 
 async def pupil_patch(doc: dict, pupil: dict, names: dict, registry: dict,
@@ -195,6 +200,7 @@ async def pupil_patch(doc: dict, pupil: dict, names: dict, registry: dict,
         names["semester"]: (doc.get("semester") or "").strip(),
         names["idp"]: "Так" if doc.get("isDisplaced") else "Ні",
         names["idp_region"]: (doc.get("displacedRegion") or "").strip(),
+        names["roles"]: st.roles_value(doc),
     }
     existing = {}
     for entry in pupil.get("customData") or []:
@@ -205,6 +211,11 @@ async def pupil_patch(doc: dict, pupil: dict, names: dict, registry: dict,
     for name, value in values.items():
         if value and existing.get(name, "") != value:
             updates[name] = value
+    # «Ролі» — єдине поле, де НАШЕ порожнє значення теж правда: роль зняли в
+    # панелі, отже її немає. Решту порожніх свідомо не пушимо (не затирати
+    # дані школи), а тут порожнє значення видаляє поле в ШС.
+    if not values[names["roles"]] and existing.get(names["roles"], ""):
+        updates[names["roles"]] = ""
 
     if strict:
         # Повна заміна: у ШС лишається рівно те, що є у Firestore, плюс поля,
