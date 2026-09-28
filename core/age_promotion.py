@@ -41,7 +41,7 @@ from core import config as cfg
 from core.bot_init import bot
 from core.constants import AGE_GROUP_MOVE_CB, AGE_PROMOTION_BUTTON, AGE_PROMOTION_MSG
 from core.database import db, get_kyivtime_now
-from core.utils import calculate_age, kyiv_today
+from core.utils import calculate_age, kyiv_date, kyiv_today
 
 log = logging.getLogger(__name__)
 
@@ -54,10 +54,8 @@ PREVIEW_ROWS = 50               # скільки рядків показуват
 
 
 def _fmt_date(value) -> str:
-    if not value:
-        return "—"
-    strftime = getattr(value, "strftime", None)
-    return strftime("%d.%m.%Y") if strftime else str(value)[:10]
+    day = kyiv_date(value)
+    return day.strftime("%d.%m.%Y") if day else ("—" if not value else str(value)[:10])
 
 
 def _name(doc: dict) -> str:

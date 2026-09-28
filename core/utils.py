@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import html
 import os
 from zoneinfo import ZoneInfo
@@ -82,6 +82,47 @@ def kyiv_today() -> date:
     return datetime.now(ZoneInfo("Europe/Kyiv")).date()
 
 
+def kyiv_date(value) -> date | None:
+    """Дата без часу (дата народження) з будь-якого збереженого значення.
+
+    Aware datetime (Firestore Timestamp) переводимо в КИЇВ перед .date(), а
+    не беремо UTC-добу. Інакше ламається будь-яке значення, внесене руками
+    в консолі Firestore як «північ» у поясі браузера: 05.07 00:00 за Берліном
+    — це 04.07 22:00 UTC, і UTC-читач бачив би 04.07. Київський читач дає
+    правильну дату і для старого полудня UTC, і для нового 00:00 UTC, і для
+    таких ручних правок (див. svitlo_admin_panel/core/tz.py).
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo:
+            return value.astimezone(ZoneInfo("Europe/Kyiv")).date()
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value.strip()[:10])
+        except ValueError:
+            return None
+    strftime = getattr(value, "strftime", None)  # Firestore Timestamp тощо
+    if strftime:
+        try:
+            return date.fromisoformat(strftime("%Y-%m-%d"))
+        except ValueError:
+            return None
+    return None
+
+
+def birth_date_value(day: date) -> datetime:
+    """Дата без часу -> що писати у Firestore: 00:00:00 UTC цього дня.
+
+    До 28.09.2026 писали полудень UTC («14:00» у консолі) — страховку від
+    UTC-читачів. Тепер усі читачі беруть київську дату (kyiv_date), а північ
+    UTC у консолі з європейським поясом показує той самий день (01:00/02:00)."""
+    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+
+
 def calculate_age(birth_date, on_date: date | None = None) -> int | None:
     """Повний вік у роках на дату `on_date` (дефолт — сьогодні).
 
@@ -94,24 +135,9 @@ def calculate_age(birth_date, on_date: date | None = None) -> int | None:
     if not birth_date:
         return None
 
-    born: date | None = None
-    if isinstance(birth_date, datetime):
-        born = birth_date.date()
-    elif isinstance(birth_date, date):
-        born = birth_date
-    elif isinstance(birth_date, str):
-        try:
-            born = date.fromisoformat(birth_date[:10])
-        except ValueError:
-            return None
-    else:
-        strftime = getattr(birth_date, "strftime", None)  # Firestore Timestamp тощо
-        if not strftime:
-            return None
-        try:
-            born = date.fromisoformat(strftime("%Y-%m-%d"))
-        except ValueError:
-            return None
+    born = kyiv_date(birth_date)
+    if born is None:
+        return None
 
     today = on_date or kyiv_today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
@@ -197,12 +223,16 @@ def get_profile_text(data: dict) -> str:
 
     user_roles = data.get("roles", [])
 
-    roles_list = []
+    # «Student» — не роль, а стадія: профіль відкривається лише з
+    # private_router, куди пускає stage student/alumni (bot/middleware.py),
+    # тож рядок стоїть завжди. Роль student із тим самим змістом прибрано
+    # з бази 28.09.2026 — вона лише дублювала stage.
+    roles_list = ["🎓 Student"]
     for role_key in cfg.ROLE_MAP.keys():
         if role_key in user_roles:
             roles_list.append(cfg.ROLE_MAP[role_key])
-            
-    roles_text = "\n".join(roles_list) if roles_list else "Немає призначених ролей"
+
+    roles_text = "\n".join(roles_list)
 
     return (
         f"<code>YOUR SVITLO PROFILE</code>\n\n"

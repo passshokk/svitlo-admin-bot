@@ -103,7 +103,8 @@ def parse_birthday(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed.replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+    # 00:00 UTC — формат дати без часу з 28.09.2026 (core.utils.birth_date_value)
+    return parsed.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
 
 
 def age_group_for(pupil: dict, names: dict, birth: datetime | None) -> str:
@@ -121,7 +122,10 @@ def merge_roles(pupil: dict, legacy: dict | None) -> tuple[list[str], list[str]]
     """Підсумкові ролі та ті, що були в старому експорті й зникли.
 
     Шкільні ролі беремо з прізвищ у ШС — вони на місяць свіжіші за експорт.
-    `itt` і `boss` є лише в експорті, тож переносимо їх звідти.
+    `itt` (з 28.09.2026 — `it`) і `boss` є лише в експорті, тож переносимо
+    їх звідти. `student`
+    зі старого експорту відкидаємо: з 28.09.2026 такої ролі немає, «учень» —
+    це stage.
     """
     _, from_surname = split_roles(pupil.get("lastName"))
     school = [r.lower() for r in from_surname]
@@ -129,10 +133,10 @@ def merge_roles(pupil: dict, legacy: dict | None) -> tuple[list[str], list[str]]
     legacy_all = {r.strip().lower()
                   for r in ((legacy or {}).get("Roles") or "").split(",") if r.strip()}
     legacy_school = {r for r in legacy_all if r.upper() in ROLE_MARKERS}
-    other = sorted(legacy_all - legacy_school - {"student"})
+    other = sorted({"it" if r == "itt" else r for r in legacy_all - legacy_school - {"student"}})
 
     dropped = sorted(legacy_school - set(school))
-    return ["student"] + school + other, dropped
+    return school + other, dropped
 
 
 def build_document(pupil: dict, parent: dict | None, legacy: dict | None,
@@ -324,7 +328,7 @@ async def main():
     for pupil, legacy, lost in dropped_roles:
         _, current = split_roles(pupil.get("lastName"))
         print(f"    #{pupil['id']:<6} {pupil.get('lastName')!r:<26} "
-              f"було {legacy['Roles']!r} → лишається {['student'] + [r.lower() for r in current]}"
+              f"було {legacy['Roles']!r} → лишається {[r.lower() for r in current]}"
               f"   ВТРАЧЕНО: {lost}")
 
     print("\nПриклади документів:")
@@ -334,8 +338,8 @@ async def main():
         for key, value in preview.items():
             print(f"      {key:<20} {value!r}")
 
-    roles_sample = [(d["lastName"], d["roles"]) for _, d in documents if len(d["roles"]) > 1]
-    print(f"\nРолі понад student у {len(roles_sample)} учнів, приклади:")
+    roles_sample = [(d["lastName"], d["roles"]) for _, d in documents if d["roles"]]
+    print(f"\nРолі є у {len(roles_sample)} учнів, приклади:")
     for last, roles in roles_sample[:8]:
         print(f"      {last!r:<28} {roles}")
 

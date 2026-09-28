@@ -52,7 +52,7 @@ python -m scripts.test_schooltoday_connection 930 --raw  # без маскува
 
 Перенесення активних учнів зі ШС у Firestore. Зливає два джерела: картку ШС і
 старий експорт `DBs/firestore_export_crmstage.csv` (Telegram ID, доступи, ролі
-`itt`/`boss`, яких у ШС немає). З'єднує їх по пошті.
+`itt` → `it` і `boss`, яких у ШС немає). З'єднує їх по пошті.
 
 ```bash
 python -m scripts.backfill_firestore --from-snapshot   # з останнього знімка, без запитів до ШС
@@ -132,8 +132,10 @@ python -m scripts.canonicalize_usernames           # показати, що зм
 python -m scripts.canonicalize_usernames --apply
 ```
 
-Firestore-аналог `strip_nickname_at.py` (той чистить те саме поле на картках у
-ШС). Для активних користувачів `bot/middleware.py` при наступному апдейті може
+У Firestore хендл зберігається без `@`, а показується з `@` усюди, де його
+бачать люди: панель, бот і поле «Telegram Nickname» у ШС (синк пише `@handle`
+з 29.09.2026; старий `strip_nickname_at.py`, що зрізав `@` у ШС, прибрано).
+Для активних користувачів `bot/middleware.py` при наступному апдейті може
 повернути оригінальний регістр; прибирання `@` лишається назавжди.
 
 ---

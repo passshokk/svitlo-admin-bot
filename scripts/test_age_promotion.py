@@ -32,7 +32,12 @@ today = date(2026, 9, 2)
 check("рівно 14 сьогодні (ДН 2012-09-02)", calculate_age(date(2012, 9, 2), today), 14)
 check("14 буде завтра (ДН 2012-09-03)", calculate_age(date(2012, 9, 3), today), 13)
 check("13 (ДН 2013-01-10)", calculate_age(date(2013, 1, 10), today), 13)
-check("Firestore-подібний datetime 12:00 UTC", calculate_age(datetime(2012, 9, 2, 12, tzinfo=timezone.utc), today), 14)
+check("Firestore-подібний datetime 12:00 UTC (старий формат)", calculate_age(datetime(2012, 9, 2, 12, tzinfo=timezone.utc), today), 14)
+check("00:00 UTC (формат з 28.09.2026)", calculate_age(datetime(2012, 9, 2, tzinfo=timezone.utc), today), 14)
+# Ручна правка в консолі з берлінським поясом: «02.09.2012 00:00» = 01.09 22:00 UTC.
+# UTC-читач побачив би 01.09 — і 14 років уже вчора; київський бачить 02.09.
+check("північ у поясі браузера (22:00 UTC) читається київською датою",
+      calculate_age(datetime(2012, 9, 1, 22, tzinfo=timezone.utc), date(2026, 9, 1)), 13)
 check("рядок ISO", calculate_age("2012-09-02", today), 14)
 check("рядок ISO з часом", calculate_age("2012-09-02T00:00:00+00:00", today), 14)
 check("29 лютого (ДН 2012-02-29)", calculate_age(date(2012, 2, 29), today), 14)
@@ -42,12 +47,12 @@ check("None на смітті", calculate_age("не дата", today), None)
 
 print("\nselect_promotable")
 docs = [
-    {"_id": "A", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # 14 -> перевести
-    {"_id": "B", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2014, 1, 1, 12, tzinfo=timezone.utc)},   # 12 -> ні
-    {"_id": "C", "ageGroup": "older",   "stage": "student", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # вже older
-    {"_id": "D", "ageGroup": "younger", "stage": "personal_data", "birthDate": datetime(2012, 1, 1, 12, tzinfo=timezone.utc)},   # не зарахований
+    {"_id": "A", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2012, 1, 1, tzinfo=timezone.utc)},   # 14 -> перевести
+    {"_id": "B", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2014, 1, 1, tzinfo=timezone.utc)},   # 12 -> ні
+    {"_id": "C", "ageGroup": "older",   "stage": "student", "birthDate": datetime(2012, 1, 1, tzinfo=timezone.utc)},   # вже older
+    {"_id": "D", "ageGroup": "younger", "stage": "personal_data", "birthDate": datetime(2012, 1, 1, tzinfo=timezone.utc)},   # не зарахований
     {"_id": "E", "ageGroup": "younger", "stage": "student", "birthDate": None},                                            # без ДН
-    {"_id": "F", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2005, 1, 1, 12, tzinfo=timezone.utc)},   # 21 -> аномалія, але перевести
+    {"_id": "F", "ageGroup": "younger", "stage": "student", "birthDate": datetime(2005, 1, 1, tzinfo=timezone.utc)},   # 21 -> аномалія, але перевести
 ]
 promote, no_birthdate, anomalies = select_promotable(docs, today)
 check("на переведення", sorted(d["_id"] for d, _ in promote), ["A", "F"])

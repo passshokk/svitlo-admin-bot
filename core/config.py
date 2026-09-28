@@ -31,11 +31,10 @@ TRUSTED_EMAIL_DOMAINS = {
 }
 
 ROLE_MAP = {
-    "itt": "💻 IT team",
+    "it": "💻 IT team member",
     "scl": "🏛️ Student Council Member",
     "buddy": "🤝 Buddy",
     "prefect": "📝 Prefect",
-    "student": "🎓 Student"
 }
 
 # LEGACY: раніше всі тікети категорії летіли в один спільний thread. Тепер кожен тікет

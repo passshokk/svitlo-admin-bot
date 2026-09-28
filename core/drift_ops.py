@@ -108,6 +108,12 @@ async def main(argv: list[str] | None = None):
                     dup_conflicting.append((doc_id, who, name, sorted(values)))
 
         for field in desired:
+            # Поле, яке почали вести пізніше (напр. birthday з 28.09.2026),
+            # у старих baseline відсутнє. Без бази не можна сказати, хто
+            # змінив значення, тож до наступного синку поле пропускаємо —
+            # інакше кожна картка показала б хибний конфлікт.
+            if field not in base:
+                continue
             b, a, d = base.get(field), actual.get(field), desired.get(field)
             st_changed = differs(a, b)
             we_changed = differs(d, b)

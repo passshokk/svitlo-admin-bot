@@ -24,7 +24,7 @@ DOC = {
     "email": "Olesia.Merkulova@Gmail.com  ",
     "phone": "0671234567",
     "gender": "Female",
-    "birthDate": datetime(2010, 10, 20, 12, tzinfo=timezone.utc),
+    "birthDate": datetime(2010, 10, 20, tzinfo=timezone.utc),
     "ageGroup": "older",
     "country": "Україна", "city": "Київ",
     "isDisplaced": True, "displacedRegion": "Донецька область",
@@ -97,7 +97,9 @@ async def main():
 
     for raw in ["olesia_m", "@olesia_m", "  @olesia_m  "]:
         assert st.normalize_nickname(raw) == "olesia_m"
-    print("  OK  нікнейм зводиться до одного формату")
+        assert st.nickname_value({"telegramUsername": raw}) == "@olesia_m"
+    assert st.nickname_value({"telegramUsername": ""}) == ""
+    print("  OK  нікнейм зберігається без '@', у ШС іде з '@'")
 
     blank = dict(DOC, healthIssuesDetails="", displacedRegion="", leadSource="")
     custom = await st.build_pupil_custom_data(blank)
