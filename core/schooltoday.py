@@ -369,6 +369,16 @@ def normalize_nickname(value: str | None) -> str:
     return value.lstrip("@").strip()
 
 
+def nickname_value(doc: dict) -> str:
+    """Значення поля «Telegram Nickname» для ШС: "@handle" або "".
+
+    Зберігаємо хендл без '@' (канон Firestore, див. normalize_nickname), а
+    ПОКАЗУЄМО з '@' — так само, як панель і бот. Тому в ШС, де поле бачать
+    люди, пишемо з '@' (з 29.09.2026; до того '@' там свідомо зрізали)."""
+    handle = normalize_nickname(doc.get("telegramUsername"))
+    return f"@{handle}" if handle else ""
+
+
 def _as_date(value: Any) -> str | None:
     """Дата без часу -> "YYYY-MM-DD" для ШС. Через kyiv_date, а не strftime
     на сирому Timestamp: той давав UTC-добу, і дата, внесена руками як
@@ -396,7 +406,7 @@ async def build_pupil_custom_data(doc: dict) -> dict[str, str]:
         "health": _yes_no(doc.get("hasHealthIssues")),
         "health_details": doc.get("healthIssuesDetails") or "",
         "lead_source": doc.get("leadSource") or "",
-        "tg_nickname": normalize_nickname(doc.get("telegramUsername")),
+        "tg_nickname": nickname_value(doc),
         "tg_id": str(doc.get("telegramId") or ""),
         "semester": doc.get("semester") or "",
         "idp": _yes_no(doc.get("isDisplaced")),

@@ -97,7 +97,9 @@ async def main():
 
     for raw in ["olesia_m", "@olesia_m", "  @olesia_m  "]:
         assert st.normalize_nickname(raw) == "olesia_m"
-    print("  OK  нікнейм зводиться до одного формату")
+        assert st.nickname_value({"telegramUsername": raw}) == "@olesia_m"
+    assert st.nickname_value({"telegramUsername": ""}) == ""
+    print("  OK  нікнейм зберігається без '@', у ШС іде з '@'")
 
     blank = dict(DOC, healthIssuesDetails="", displacedRegion="", leadSource="")
     custom = await st.build_pupil_custom_data(blank)
