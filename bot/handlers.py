@@ -23,6 +23,7 @@ from bot.age_group import age_group_router
 from bot.filters import ActiveTicketFilter, IsTesterFilter
 from core.bot_init import dp, bot
 from core.error_reporting import report_error
+from core.constants import SUPPORT_FAQ_HINT
 
 # region ROUTER =================================================
 
@@ -337,10 +338,12 @@ async def _open_support_category_picker(send, user_id: int, state: FSMContext) -
 
     await state.set_state(TicketFSM.choosing_category)
     await send(
-        "<b>🌟 Svitlo Support Centre 🌟</b>\n"
-        "Вибирай категорію свого запиту:",
+        "<b>🌟 Svitlo Support Centre 🌟</b>\n\n"
+        f"{SUPPORT_FAQ_HINT}\n\n"
+        "Якщо відповіді там немає — вибирай категорію свого запиту:",
         parse_mode="HTML",
-        reply_markup=kb.get_categories_kb()
+        reply_markup=kb.get_categories_kb(),
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
     return True
 

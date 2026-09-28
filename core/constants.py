@@ -1,3 +1,12 @@
+FAQ_URL = "https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10"
+
+# Показується на старті кожного запиту до Support Centre, щоб типові питання
+# знаходили відповідь у FAQ, не доходячи до куратора
+SUPPORT_FAQ_HINT = (
+    "🔎 <b>Перед тим як звернутися</b>, перевір, чи на твоє запитання вже не відповіли тут 👉 "
+    f"<a href='{FAQ_URL}'>FAQ — Frequent Questions</a>"
+)
+
 LEAD_WELCOME_MSG = (
         "Раді тебе бачити!\n"
         "⏱️ Подача заявки до Svitlo School займає близько 17 хвилин.\n\n"

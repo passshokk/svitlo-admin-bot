@@ -5,6 +5,7 @@ from aiogram.types.web_app_info import WebAppInfo
 import os
 
 from core.context import user_roles_ctx
+from core.constants import FAQ_URL
 
 # ==========================
 # region --- Registration
@@ -179,7 +180,7 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="🏰 Join House Group", callback_data="house")
     builder.button(text="📚 Reading Buddy Groups", callback_data="rb_day:0")
     builder.button(text="📱 Socials", callback_data="socials")
-    builder.button(text="⁉️ FAQ — Frequent Questions", url="https://telegra.ph/FAQ-Everything-about-Svitlo-School-04-10")
+    builder.button(text="⁉️ FAQ — Frequent Questions", url=FAQ_URL)
     builder.button(text="📜 Rules and Culture", url="https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21")
     builder.button(text="💌 Mental Support", url="https://forms.gle/MGyGav2krG1x7x8DA")
     builder.button(text="🆘 Svitlo Support Centre", callback_data="support_menu")
