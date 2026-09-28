@@ -52,7 +52,7 @@ python -m scripts.test_schooltoday_connection 930 --raw  # без маскува
 
 Перенесення активних учнів зі ШС у Firestore. Зливає два джерела: картку ШС і
 старий експорт `DBs/firestore_export_crmstage.csv` (Telegram ID, доступи, ролі
-`itt`/`boss`, яких у ШС немає). З'єднує їх по пошті.
+`itt` → `it` і `boss`, яких у ШС немає). З'єднує їх по пошті.
 
 ```bash
 python -m scripts.backfill_firestore --from-snapshot   # з останнього знімка, без запитів до ШС

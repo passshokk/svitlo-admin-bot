@@ -123,7 +123,7 @@ The registration flow (`bot/reg_funnel.py`, states defined in `bot/states.py`) i
 
 Access control is stage- and role-driven, not command-based:
 - `stage` moves a user through `personal_data` → `rules_matching` → `uploading_docs` → `admin_review` → `student` (or `blocked`, `alumni`). A document is only created once someone taps "Start registration" — there's no earlier "lead" stage; a person who only tapped "I want to register" but never started the form leaves no record at all.
-- `roles` is a free-form list of school roles (`scl`, `buddy`, `buddy_lead`, `buddy_head`, `prefect`, `itt`, `gsl`, plus staff-only roles like `boss`/`teacher`) read straight from Firestore on every request via `LoadDataMiddleware`. Being a student is the `stage`, not a role: the old `student` role only duplicated it and was removed on 2026-09-28.
+- `roles` is a free-form list of school roles (`scl`, `buddy`, `buddy_lead`, `buddy_head`, `prefect`, `it`, `gsl`, plus staff-only roles like `boss`/`teacher`) read straight from Firestore on every request via `LoadDataMiddleware`. Being a student is the `stage`, not a role: the old `student` role only duplicated it and was removed on 2026-09-28.
 - `RequireAuthMiddleware` is the actual gate on the private router: active students/alumni or staff roles pass; anyone else gets bounced into an email-sync prompt or a "finish registering first" message.
 
 ## Document verification pipeline

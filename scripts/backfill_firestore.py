@@ -122,7 +122,8 @@ def merge_roles(pupil: dict, legacy: dict | None) -> tuple[list[str], list[str]]
     """Підсумкові ролі та ті, що були в старому експорті й зникли.
 
     Шкільні ролі беремо з прізвищ у ШС — вони на місяць свіжіші за експорт.
-    `itt` і `boss` є лише в експорті, тож переносимо їх звідти. `student`
+    `itt` (з 28.09.2026 — `it`) і `boss` є лише в експорті, тож переносимо
+    їх звідти. `student`
     зі старого експорту відкидаємо: з 28.09.2026 такої ролі немає, «учень» —
     це stage.
     """
@@ -132,7 +133,7 @@ def merge_roles(pupil: dict, legacy: dict | None) -> tuple[list[str], list[str]]
     legacy_all = {r.strip().lower()
                   for r in ((legacy or {}).get("Roles") or "").split(",") if r.strip()}
     legacy_school = {r for r in legacy_all if r.upper() in ROLE_MARKERS}
-    other = sorted(legacy_all - legacy_school - {"student"})
+    other = sorted({"it" if r == "itt" else r for r in legacy_all - legacy_school - {"student"}})
 
     dropped = sorted(legacy_school - set(school))
     return school + other, dropped

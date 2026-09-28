@@ -30,9 +30,10 @@ check("назви як у панелі, порядок фіксований",
       roles_value({"roles": ["buddy", "scl"]}), "Student Council;Buddy")
 check("buddy lead/head", roles_value({"roles": ["buddy_head", "buddy_lead"]}), "Buddy Lead;Buddy Head")
 check("gsl передається", roles_value({"roles": ["gsl", "buddy"]}), "Buddy;GSL")
-check("boss не передається", roles_value({"roles": ["prefect", "scl", "itt", "boss"]}),
-      "Student Council;Prefect;ITT")
-check("рядок після правки в Rowy", roles_value({"roles": "scl | itt"}), "Student Council;ITT")
+check("boss не передається", roles_value({"roles": ["prefect", "scl", "it", "boss"]}),
+      "Student Council;Prefect;IT")
+check("рядок після правки в Rowy", roles_value({"roles": "scl | it"}), "Student Council;IT")
+check("старий ключ itt більше не роль", roles_value({"roles": ["itt"]}), "")
 check("невідома роль ігнорується", roles_value({"roles": ["teacher", "whatever"]}), "")
 check("немає поля", roles_value({}), "")
 

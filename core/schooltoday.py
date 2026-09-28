@@ -117,7 +117,7 @@ ROLE_TO_ST = {
     "buddy_lead": "Buddy Lead",
     "buddy_head": "Buddy Head",
     "prefect": "Prefect",
-    "itt": "ITT",
+    "it": "IT",
     "gsl": "GSL",
 }
 
@@ -125,7 +125,7 @@ ROLE_TO_ST = {
 def roles_value(doc: dict) -> str:
     """Значення поля «Ролі» для ШС: "Student Council;Buddy" або "".
 
-    `roles` після ручної правки в Rowy буває рядком "scl, itt" — той самий
+    `roles` після ручної правки в Rowy буває рядком "scl, it" — той самий
     захист, що в панелі (core/buddy.roles_of)."""
     raw = doc.get("roles") or []
     if isinstance(raw, str):
