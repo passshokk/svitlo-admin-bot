@@ -16,7 +16,7 @@ from core import utils as ut
 from bot.states import Registration, TicketFSM
 from core.constants import (
     QUIZ_DATA, LEAD_WELCOME_MSG, LEAD_INTERLUDE_1_MSG, RULES_MSG,
-    LEAD_INTERLUDE_2_MSG, SCANNER_MSG,
+    LEAD_INTERLUDE_2_MSG, SCANNER_MSG, SUPPORT_FAQ_HINT,
 )
 from core.context import student_ctx
 from api.task_manager import enqueue_task
@@ -27,12 +27,24 @@ from bot.filters import IsTesterFilter
 # region CONSTANTS
 # ===============================================================
 
+# Повторне введення пошти учня (лише учня — пошту батьків не перепитуємо): у ній
+# помиляються найчастіше, а на неї створюється акаунт на навчальній платформі
+EMAIL_CONFIRM_PROMPT = (
+    "❗️ <b>Це дуже важливо!</b>\n"
+    "Саме на цю пошту ми створимо твій акаунт на навчальній платформі SvitloSchool. "
+    "Якщо в адресі буде хоч одна помилка, ти не зможеш отримати доступ до платформи\n\n"
+    "Тому <b>введи свою електронну пошту ще раз</b> для перевірки. "
+    "Набери її вручну, не копіюючи попереднє повідомлення:"
+)
+EMAIL_CONFIRM_MISMATCH_MSG = "⚠️ <b>Пошти не збігаються</b> — отже, в одній із них є помилка. Почнімо ще раз"
+
 # SSoT для тексту і клавіатур кожного поля редагування анкети (той самий підхід, що й REGISTRATION_PROMPTS нижче)
 EDIT_FIELD_PROMPTS = {
     "firstName": ("Введи нове <b>ім'я</b> (англійською):", None),
     "lastName": ("Введи нове <b>прізвище</b> (англійською):", None),
     "birthDate": ("Введи нову <b>дату народження</b> (ДД.ММ.РРРР):", None),
     "email": ("Введи новий <b>Email</b>:", None),
+    "emailConfirm": (EMAIL_CONFIRM_PROMPT, None),
     "country": ("Обери нову <b>країну</b> проживання:", kb.get_country_kb),
     "city": ("Введи нове <b>місто</b> проживання:", None),
     "isDisplaced": ("<b>Чи довелося тобі змінити місце проживання через війну?</b>", kb.get_boolean_kb),
@@ -71,7 +83,8 @@ REGISTRATION_PROMPTS = {
     Registration.entering_dob.state: (
         "Введи свою <b>дату народження</b> у форматі ДД.ММ.РРРР (наприклад: 24.08.2011):", None,
     ),
-    Registration.entering_email.state: ("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)? На неї ми створимо акаунт на навчальній плафтормі SvitloSchool", None),
+    Registration.entering_email.state: ("Яка твоя <b>електронна пошта</b> (та, якою найчастіше користуєшся)? На неї ми створимо акаунт на навчальній платформі SvitloSchool", None),
+    Registration.confirming_email.state: (EMAIL_CONFIRM_PROMPT, None),
     # Живий флоу шле це двома окремими повідомленнями (коротке питання + інструкція з кнопкою) —
     # тут навмисно один об'єднаний текст, тому що для resume-контексту зайве повідомлення не потрібне.
     Registration.entering_phone.state: (
@@ -198,11 +211,13 @@ async def help_during_registration(message: Message, state: FSMContext):
     await state.update_data(category="Реєстрація", return_state=current_state)
     await state.set_state(TicketFSM.writing_first_message)
     await message.answer(
-        "<b>🌟 Svitlo Support Centre 🌟</b>\n"
-        "Опиши питання чи проблему. Живий куратор відповість найближчим часом!\n\n"
+        "<b>🌟 Svitlo Support Centre 🌟</b>\n\n"
+        f"{SUPPORT_FAQ_HINT}\n\n"
+        "Якщо відповіді там немає — опиши питання чи проблему. Живий куратор відповість найближчим часом!\n\n"
         "<i>Твій прогрес реєстрації нікуди не дінеться — продовжиш одразу після закриття запиту</i>",
         parse_mode="HTML",
-        reply_markup=kb.get_ticket_cancel_kb()
+        reply_markup=kb.get_ticket_cancel_kb(),
+        disable_web_page_preview=True
     )
 
 # endregion =====================================================
@@ -422,7 +437,7 @@ async def _check_email_typo(message: Message, state: FSMContext, email: str, pen
         await state.update_data(**{pending_key: None})
     return False
 
-# EMAIL -> ТЕЛЕФОН
+# EMAIL -> ПОВТОРНИЙ EMAIL
 @reg_router.message(Registration.entering_email, F.text)
 async def process_email(message: Message, state: FSMContext):
     email = message.text.lower().strip()
@@ -432,10 +447,32 @@ async def process_email(message: Message, state: FSMContext):
     if await _check_email_typo(message, state, email, "emailTypoPending"):
         return
 
-    await state.update_data(email=email)
+    # У `email` пошта потрапляє лише після збігу з повторним введенням
+    await state.update_data(pendingEmail=email)
+    await state.set_state(Registration.confirming_email)
+    await ut.step_answer(message, _prompt(Registration.confirming_email))
+
+# ПОВТОРНИЙ EMAIL -> ТЕЛЕФОН
+@reg_router.message(Registration.confirming_email, F.text)
+async def process_email_confirm(message: Message, state: FSMContext):
+    email = message.text.lower().strip()
+    if not re.match(EMAIL_REGEX, email):
+        await ut.step_answer(message, "⚠️ Неправильний формат. Введи ще раз ту саму пошту (приклад: <code>user@gmail.com</code>):")
+        return
+
+    data = await state.get_data()
+    if email != data.get("pendingEmail"):
+        # Невідомо, котре з двох введень хибне, тож обидва починаємо наново
+        await state.update_data(pendingEmail=None)
+        await state.set_state(Registration.entering_email)
+        await message.answer(EMAIL_CONFIRM_MISMATCH_MSG)
+        await ut.step_answer(message, _prompt(Registration.entering_email))
+        return
+
+    await state.update_data(email=email, pendingEmail=None)
     await state.set_state(Registration.entering_phone)
-    
-    await message.answer("Дякую, тепер <b>натисни кнопку «Поділитись номером»</b> нижче, аби надіслати нам свій контакт! Це допоможе зберегти твій номер телефону в правильному форматі та залишатись на зв'язку 😌", reply_markup=kb.get_number_for_registration_kb())
+
+    await message.answer("✅ Пошту підтверджено, дякую! Тепер <b>натисни кнопку «Поділитись номером»</b> нижче, аби надіслати нам свій контакт! Це допоможе зберегти твій номер телефону в правильному форматі та залишатись на зв'язку 😌", reply_markup=kb.get_number_for_registration_kb())
     await ut.step_answer(message, "<blockquote>ℹ️ Telegram може відкрити стандартне системне вікно для верифікації — <b>це безпечна процедура авторизації, просто підтвердь дію</b></blockquote>")
 
 # ТЕЛЕФОН -> КРАЇНА
@@ -865,7 +902,19 @@ async def process_field_edit(message: Message, state: FSMContext):
             return await ut.step_answer(message, "⚠️ Неправильний формат. Спробуй ще раз (приклад: <code>user@gmail.com</code>):")
         if await _check_email_typo(message, state, val, "editEmailTypoPending"):
             return
-        await state.update_data(email=val)
+        # Той самий повтор, що й у process_email_confirm — редагована пошта так само вразлива до помилок
+        await state.update_data(pendingEmail=val, editingField="emailConfirm")
+        return await ut.step_answer(message, EDIT_FIELD_PROMPTS["emailConfirm"][0])
+
+    elif field == "emailConfirm":
+        val = message.text.lower().strip()
+        if not re.match(EMAIL_REGEX, val):
+            return await ut.step_answer(message, "⚠️ Неправильний формат. Введи ще раз ту саму пошту (приклад: <code>user@gmail.com</code>):")
+        if val != data.get("pendingEmail"):
+            await state.update_data(pendingEmail=None, editingField="email")
+            await message.answer(EMAIL_CONFIRM_MISMATCH_MSG)
+            return await ut.step_answer(message, EDIT_FIELD_PROMPTS["email"][0])
+        await state.update_data(email=val, pendingEmail=None)
 
     elif field == "country":
         # Та сама пара «клавіатура + запасне вільне введення», що і в
