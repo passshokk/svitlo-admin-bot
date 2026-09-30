@@ -442,35 +442,26 @@ async def set_user_fsm_state(user_id: int | str, state_str: str):
 
 _TESTERS_DOC = ("Config", "bot_settings")
 
-# Поточний семестр. Формат `номер_рік-рік` — саме його очікує core.utils при
+# Поточний семестр. Формат `YY-YY_NN` — саме його очікує core.utils при
 # рендері профілю, а `prior_semesters` зарезервовано для перенесених учнів.
-# Значення живе у Firestore, а не в коді: інакше з першим днем нового семестру
-# всі реєстрації тихо отримували б чужу когорту, і помітили б це нескоро —
-# нічого ж не падає.
+# Запасне значення — лише на аварію (календаря немає або він не покриває
+# сьогодні), і про неї одразу летить повідомлення в адмінчат.
 _SEMESTER_FALLBACK = "26-27_01"
 
 
 async def get_current_semester() -> str:
     """Код семестру, який проставляється новому ліду при створенні.
 
-    Джерело №1 — навчальний календар (Config/academic_calendar). Саме він
-    знає, що семестр починається з першого дня канікул перед ним, а не з
-    першого уроку, тож нові ліди автоматично лягають у правильну когорту
-    в ту саму мить, коли набір відкривається.
+    Єдине джерело — навчальний календар (Config/academic_calendar). Він
+    знає, що семестр починається з першого дня набору перед ним, а не з
+    першого уроку, тож нові ліди лягають у правильну когорту в ту саму
+    мить, коли набір відкривається (зокрема й достроково, через
+    `/registration <дата>` — див. core/registration.py).
 
-    Це прибирає рівно ту пастку, про яку попереджає коментар вище: раніше
-    код треба було бумкнути вручну, і якщо забути — усі реєстрації тихо
+    Ручного поля `currentSemester` більше немає (прибране 30.09.2026): його
+    треба було бумкнути руками, і якщо забути — усі реєстрації тихо
     отримували чужу когорту, бо нічого не падало.
-
-    Джерело №2 (фолбек) — старе ручне поле `currentSemester`. Воно лишається
-    робочим, поки календар не залитий, і як аварійний важіль, якщо документ
-    видалять. Розбіжність між ними логуємо: мовчки проігнорований ручний
-    запис — це саме той різновид сюрпризу, якого тут і уникаємо.
     """
-    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
-    data = doc.to_dict() if doc.exists else {}
-    manual = (data.get("currentSemester") or "").strip()
-
     try:
         from core.academic_calendar import load_calendar, today
         calendar = await load_calendar()
@@ -481,39 +472,20 @@ async def get_current_semester() -> str:
         derived = None
 
     if derived:
-        if manual and manual != derived:
-            logging.warning(
-                "Семестр: календар каже %s, ручне поле currentSemester — %s. "
-                "Беремо календар; якщо потрібне саме ручне значення, правити треба календар.",
-                derived, manual,
-            )
         return derived
 
-    return manual or _SEMESTER_FALLBACK
-
-
-async def set_current_semester(value: str) -> None:
-    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"currentSemester": value.strip()}, merge=True
-    )
-
-
-# Дата початку занять — показується учневі у вітальному повідомленні після
-# схвалення заявки. Раніше була рядком у коді й устигла застаріти: зміна дати
-# не має вимагати деплою.
-_TERM_START_FALLBACK = "Понеділок, 14 вересня 2026 року"
-
-
-async def get_term_start_date() -> str:
-    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
-    data = doc.to_dict() if doc.exists else {}
-    return (data.get("termStartDate") or "").strip() or _TERM_START_FALLBACK
-
-
-async def set_term_start_date(value: str) -> None:
-    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"termStartDate": value.strip()}, merge=True
-    )
+    # Лід не має губитись через календар, тож пишемо запасний код — але
+    # голосно: мовчки записана чужа когорта і є та пастка, від якої рятує
+    # календар.
+    try:
+        from core.error_reporting import report_error
+        await report_error(
+            RuntimeError(f"Календар не дає семестру на сьогодні — новому ліду записано {_SEMESTER_FALLBACK}"),
+            context="core.database.get_current_semester: перевір Config/academic_calendar",
+        )
+    except Exception:
+        logging.exception("Не вдалося повідомити про порожній календар")
+    return _SEMESTER_FALLBACK
 
 
 async def _get_testers_map() -> dict[str, str | None]:
@@ -551,56 +523,5 @@ async def remove_tester_id(tg_id: int):
 
 # endregion
 
-# ==========================
-# region --- Registration Period Control
-
-async def get_registration_open() -> bool:
-    """Чи відкрита реєстрація нових лідів (кнопка "Хочу зареєструватись" на /start).
-    Керується овнером через /registration. За замовчуванням закрита."""
-    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
-    data = doc.to_dict() if doc.exists else {}
-    return bool(data.get("registrationOpen", False))
-
-async def set_registration_open(is_open: bool):
-    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"registrationOpen": is_open},
-        merge=True,
-    )
-
-async def get_next_registration_date() -> str | None:
-    """Людиночитабельна дата наступного набору (напр. "28 жовтня").
-    Показується лідам на кнопці-блокері, коли реєстрація закрита.
-
-    Ручне значення (`/registration <дата>` від овнера) має ПРІОРИТЕТ —
-    на відміну від семестру й дат початку навчання. Причина: відкриття
-    набору це рішення школи, а не наслідок календаря. Календар лише
-    підказує дату, коли овнер її не проставив, щоб замість порожнечі
-    лід бачив хоч якийсь орієнтир.
-
-    Літні канікули календар навмисно не пропонує як "наступний набір"
-    (див. next_intake_start): після останнього семестру року дату
-    призначає людина.
-    """
-    doc = await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).get()
-    data = doc.to_dict() if doc.exists else {}
-    manual = (data.get("nextRegistrationDate") or "").strip()
-    if manual:
-        return manual
-
-    try:
-        from core.academic_calendar import format_date, load_calendar, today
-        calendar = await load_calendar()
-        intake = calendar.next_intake_start(today()) if calendar else None
-        if intake:
-            return format_date(intake, with_weekday=False)
-    except Exception:
-        logging.exception("Не вдалося взяти дату набору з календаря")
-    return None
-
-async def set_next_registration_date(date_str: str):
-    await db.collection(_TESTERS_DOC[0]).document(_TESTERS_DOC[1]).set(
-        {"nextRegistrationDate": date_str.strip()},
-        merge=True,
-    )
-
-# endregion
+# Реєстрація нових лідів (відкрита / дата набору) — у core/registration.py:
+# вона тепер виводиться з календаря, а не з полів цього документа.

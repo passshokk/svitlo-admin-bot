@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 
 from core import database as db
+from core import registration
 from core.database import db as firestore_client
 from bot import keyboards as kb
 from core import utils as ut
@@ -240,7 +241,7 @@ async def cmd_start(message: Message, state: FSMContext):
         )
     else:
         # Невідомий користувач (старий студент без ТГ або новий лід)
-        registration_open = await db.get_registration_open()
+        registration_open = await registration.is_registration_open()
         await message.answer(
             "👋 Привіт! Я — офіційний бот SvitloSchool.\n"
             "<b>Обери свій статус, щоб ми могли продовжити:</b>",
@@ -260,7 +261,7 @@ async def process_auth_existing(callback: CallbackQuery, state: FSMContext):
 
 async def _registration_closed_alert() -> str:
     """Текст спливаючого вікна, коли гість тисне на заблоковану реєстрацію."""
-    date_str = await db.get_next_registration_date()
+    date_str = await registration.next_registration_text()
     if date_str:
         return f"Наступна реєстрація — {date_str}"
     return "⚠️ Реєстрація нових студентів наразі закрита"
@@ -280,7 +281,7 @@ async def process_auth_new_lead(callback: CallbackQuery, state: FSMContext):
     наступний крок). Тепер документ і відлік конверсії з'являються лише на
     кліку «Почати реєстрацію» (start_entering_data нижче).
     """
-    if not await db.get_registration_open():
+    if not await registration.is_registration_open():
         await callback.answer(await _registration_closed_alert(), show_alert=True)
         await callback.message.edit_reply_markup(reply_markup=kb.get_guest_start_menu(registration_open=False))
         return
