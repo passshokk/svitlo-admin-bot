@@ -12,7 +12,6 @@ from datetime import timedelta
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
 from bot.states import TicketFSM, Registration
-from core import rbuddy_data as rb
 from core import database as db
 from bot import keyboards as kb
 from core import utils as ut
@@ -495,36 +494,6 @@ async def process_nps(callback: CallbackQuery):
 
     # Функція експорту в Notion
     await enqueue_task("/tasks/export_notion", payload=updated_ticket_data)
-
-# endregion =====================================================
-# region CALLBACKS - RB
-# ===============================================================
-
-@private_router.callback_query(F.data.startswith("rb_day:"))
-async def switch_rbuddy_day(callback: CallbackQuery):
-    await callback.answer()
-    
-    day_index = int(callback.data.split(":")[1])
-    day_name = rb.DAYS_INTEXT[day_index]
-    
-    text = f"<b>📚 Розклад Reading Buddies на {day_name}.</b>\nОбирай та натискай, до якого Buddy хочеш доєднатись в тг-групу:"
-    keyboard = rb.get_rbuddy_day_keyboard(day_index)
-
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard)
-    except Exception:
-        pass
-
-@private_router.callback_query(F.data.startswith("no_url:"))
-async def handle_missing_url(callback: CallbackQuery):
-    status = callback.data.split(":")[1]
-    
-    if status == "platform":
-        text = "Спілкуємося на платформі"
-    else:
-        text = "Посилання на цю групу ще не додано"
-
-    await callback.answer(text, show_alert=True)
 
 # endregion =====================================================
 # region FSM (Messages)

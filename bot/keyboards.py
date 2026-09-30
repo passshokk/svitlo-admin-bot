@@ -175,7 +175,6 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🎓 Your Svitlo Profile", callback_data="my_profile")
     builder.button(text="🏰 Join House Group", callback_data="house")
-    builder.button(text="📚 Reading Buddy Groups", callback_data="rb_day:0")
     builder.button(text="📱 Socials", callback_data="socials")
     builder.button(text="⁉️ FAQ — Frequent Questions", url=FAQ_URL)
     builder.button(text="📜 Rules and Culture", url="https://telegra.ph/Pravila-ta-kultura-Svitlo-School-07-21")
