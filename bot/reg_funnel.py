@@ -268,6 +268,26 @@ async def _registration_closed_alert() -> str:
 
 @reg_router.callback_query(F.data == "reg_closed_info")
 async def process_reg_closed_info(callback: CallbackQuery):
+    """Кнопка-блокер у старому меню. Меню не оновлюється саме, а реєстрація
+    з 30.09.2026 відкривається за календарем без участі людини — тож гість,
+    що отримав меню до набору, тисне цю кнопку вже тоді, коли набір триває.
+    Раніше він бачив «реєстрація закрита»; тепер кнопку підміняємо на живу
+    (дзеркально до process_auth_new_lead, що робить зворотне)."""
+    if await registration.is_registration_open():
+        await callback.answer("Реєстрація вже відкрита — тисни «Хочу зареєструватись» 👇", show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=kb.get_guest_start_menu(registration_open=True))
+        except TelegramBadRequest as e:
+            if "not modified" in str(e).lower():
+                return  # подвійний тап — меню вже оновлене
+            # Повідомлення застаре для редагування (старше 48 год) — свіже
+            # меню надсилаємо окремо.
+            await callback.message.answer(
+                "<b>Обери свій статус, щоб ми могли продовжити:</b>",
+                parse_mode="HTML",
+                reply_markup=kb.get_guest_start_menu(registration_open=True),
+            )
+        return
     await callback.answer(await _registration_closed_alert(), show_alert=True)
 
 @reg_router.callback_query(F.data == "auth_new_lead")
