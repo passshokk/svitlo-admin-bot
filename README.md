@@ -113,7 +113,8 @@ This statelessness requirement runs through the whole codebase — no global var
 | `StageEvents` | Append-only log of every stage transition (`personal_data` → … → `student`/`blocked`). `Svitlo.stage` only holds the *current* stage, so this is the only place funnel-conversion history exists. |
 | `SupportCentreTickets` | Helpdesk tickets — category, linked forum thread ID, message history, status, curator, NPS rating. |
 | `FSM_Sessions` | aiogram conversation state, described above. |
-| `Config/bot_settings` | A single settings document: current semester, term start date, the tester allow-list, and whether registration is currently open. |
+| `Config/bot_settings` | A single settings document: the tester allow-list and a temporary manual registration override (`registrationOverride`). |
+| `Config/academic_calendar` | The school year: semesters with their periods (admission, induction, shopping, term, christmas) and breaks. The current semester, start dates and whether registration is open are all derived from it (`core/academic_calendar.py`, `core/registration.py`). |
 | `SyncState` | Per-student snapshot of exactly what was last pushed to SchoolToday — the baseline the drift detector compares against. |
 | `FailedEnrollments` | Log of SchoolToday enrollment attempts that failed, for staff follow-up. |
 

@@ -7,12 +7,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 import re
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 
 from bot.middleware import RequireAuthMiddleware
 from core.context import student_ctx, user_roles_ctx
 from bot.states import TicketFSM, Registration
 from core import database as db
+from core import registration
+from core.academic_calendar import format_date
 from bot import keyboards as kb
 from core import utils as ut
 from core import config as cfg
@@ -139,41 +141,111 @@ async def handle_tester_user_shared(message: Message):
 
 
 # Registration Period Control
-# /registration: власник перемикає, чи бачать нові ліди кнопку "Хочу зареєструватись" на /start.
+# /registration: реєстрація відкрита сама, поки триває набір за календарем
+# (core/registration.py). Власник може тимчасово перемкнути її вручну — до
+# кінця поточного періоду — або перенести старт набору: /registration 25.10.
 # Не прив'язано до списку тестувальників — це окремий продакшн-перемикач.
 
-def _registration_status_text(is_open: bool, next_date: str | None = None) -> str:
-    status = "🟢 Відкрита" if is_open else "🔴 Закрита"
+def _registration_status_text(state: registration.RegistrationState) -> str:
+    status = "🟢 Відкрита" if state.is_open else "🔴 Закрита"
     lines = [f"🎓 Реєстрація: {status}"]
-    if not is_open:
-        if next_date:
-            lines.append(f"📅 Наступний набір: <b>{next_date}</b>")
-        else:
-            lines.append("📅 Наступний набір не вказано — задай: <code>/registration 28 жовтня</code>")
+    if state.manual:
+        until = f" до {state.until:%d.%m.%Y}" if state.until else " без терміну (календаря немає)"
+        lines.append(f"✋ Вручну{until}, далі — за календарем")
+    elif not state.calendar_ok:
+        lines.append("⚠️ Календар недоступний — поки його немає, реєстрація закрита")
+    elif state.is_open and state.until:
+        lines.append(f"📆 За календарем: набір триває до {state.until:%d.%m.%Y}")
+    else:
+        lines.append("📆 За календарем: відкривається лише на час набору")
+    if not state.is_open:
+        if state.next_start:
+            lines.append(f"📅 Наступний набір: <b>{format_date(state.next_start, with_weekday=False)}</b>"
+                         f" ({state.next_semester})")
+        elif state.calendar_ok:
+            lines.append("📅 Наступного набору в календарі немає — потрібен календар наступного навчального року")
+    lines.append("\nПочати набір раніше чи пізніше: <code>/registration 25.10</code>")
     return "\n".join(lines)
+
+
+def _move_preview_text(move: registration.AdmissionMove) -> str:
+    lines = [
+        f"📅 Перенести старт набору на <b>{move.semester}</b>?",
+        f"• було: {format_date(move.old_start)}",
+        f"• стане: <b>{format_date(move.new_start)}</b>",
+    ]
+    if move.previous_kind:
+        lines.append(f"• {move.previous_kind} {move.previous_semester} закінчиться "
+                     f"{move.previous_new_end:%d.%m.%Y} (було {move.previous_old_end:%d.%m.%Y})")
+    lines.append(
+        f"\nЗ цієї дати реєстрація відкриється сама, нові ліди отримають семестр {move.semester}, "
+        f"а аналітика панелі рахуватиме їх у {move.semester}. Ручне перемикання, якщо є, скинеться."
+    )
+    return "\n".join(lines)
+
 
 @public_router.message(Command("registration"), F.from_user.id == cfg.OWNER_ID)
 async def cmd_registration(message: Message, command: CommandObject):
-    # /registration <дата> — задає людиночитабельну дату наступного набору,
-    # яку бачать ліди на кнопці-блокері, коли реєстрація закрита.
+    # /registration <дата> — перенести старт найближчого набору в календарі
+    # (з підтвердженням: це міняє і семестр нових лідів, і аналітику).
     if command.args:
-        await db.set_next_registration_date(command.args)
-    is_open = await db.get_registration_open()
-    next_date = await db.get_next_registration_date()
+        day = registration.parse_day(command.args, ut.kyiv_today())
+        if not day:
+            await message.answer("Не розпізнав дату. Приклади: <code>25.10</code>, "
+                                 "<code>25 жовтня</code>, <code>2026-10-25</code>")
+            return
+        try:
+            move = await registration.preview_admission_move(day)
+        except ValueError as e:
+            await message.answer(f"⚠️ {e}")
+            return
+        await message.answer(_move_preview_text(move),
+                             reply_markup=kb.get_registration_move_confirm_kb(day.isoformat()))
+        return
+
+    state = await registration.get_state()
     await message.answer(
-        _registration_status_text(is_open, next_date),
-        reply_markup=kb.get_registration_toggle_kb(is_open)
+        _registration_status_text(state),
+        reply_markup=kb.get_registration_toggle_kb(state.is_open, state.manual)
     )
 
-@public_router.callback_query(F.data.in_({"registration_open", "registration_close"}), F.from_user.id == cfg.OWNER_ID)
+@public_router.callback_query(F.data.in_({"registration_open", "registration_close", "registration_auto"}),
+                              F.from_user.id == cfg.OWNER_ID)
 async def cb_registration_toggle(callback: CallbackQuery):
-    is_open = callback.data == "registration_open"
-    await db.set_registration_open(is_open)
+    choice = {"registration_open": True, "registration_close": False, "registration_auto": None}[callback.data]
+    state = await registration.set_override(choice)
     await callback.answer("Готово!")
-    next_date = await db.get_next_registration_date()
-    await callback.message.edit_text(
-        _registration_status_text(is_open, next_date),
-        reply_markup=kb.get_registration_toggle_kb(is_open)
+    await ut.safe_edit_text(
+        callback.message,
+        _registration_status_text(state),
+        reply_markup=kb.get_registration_toggle_kb(state.is_open, state.manual)
+    )
+
+@public_router.callback_query(F.data.startswith("registration_move:"), F.from_user.id == cfg.OWNER_ID)
+async def cb_registration_move(callback: CallbackQuery):
+    try:
+        day = date.fromisoformat(callback.data.split(":", 1)[1])
+        move = await registration.move_admission_start(day)
+    except ValueError as e:
+        await callback.answer(str(e)[:190], show_alert=True)
+        return
+    await callback.answer("Перенесено!")
+    state = await registration.get_state()
+    await ut.safe_edit_text(
+        callback.message,
+        f"✅ Набір на <b>{move.semester}</b> стартує <b>{format_date(move.new_start)}</b>.\n\n"
+        + _registration_status_text(state),
+        reply_markup=kb.get_registration_toggle_kb(state.is_open, state.manual)
+    )
+
+@public_router.callback_query(F.data == "registration_move_cancel", F.from_user.id == cfg.OWNER_ID)
+async def cb_registration_move_cancel(callback: CallbackQuery):
+    await callback.answer("Скасовано")
+    state = await registration.get_state()
+    await ut.safe_edit_text(
+        callback.message,
+        _registration_status_text(state),
+        reply_markup=kb.get_registration_toggle_kb(state.is_open, state.manual)
     )
 
 # endregion =====================================================

@@ -22,7 +22,7 @@ def get_start_menu() -> InlineKeyboardMarkup:
 
 def get_guest_start_menu(registration_open: bool = True) -> InlineKeyboardMarkup:
     """Стартове меню для неідентифікованих користувачів (лідів).
-    Поки реєстрація відкрита овнером (/registration) — активна кнопка "Хочу зареєструватись".
+    Поки реєстрація відкрита (за календарем або вручну через /registration) — активна кнопка "Хочу зареєструватись".
     Коли закрита — на її місці червона кнопка-блокер, що показує дату наступного набору."""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎓 Я вже є студентом Svitlo", style="primary", callback_data="auth_existing"))
@@ -331,11 +331,23 @@ def get_testers_menu_kb() -> InlineKeyboardMarkup:
         ]]
     )
 
-def get_registration_toggle_kb(registration_open: bool) -> InlineKeyboardMarkup:
-    """Клавіатура-тумблер для /registration: одна кнопка, що перемикає стан на протилежний."""
+def get_registration_toggle_kb(registration_open: bool, manual: bool = False) -> InlineKeyboardMarkup:
+    """Клавіатура для /registration: ручне перемикання на протилежний стан
+    (до кінця поточного періоду календаря), а якщо стан уже ручний — ще й
+    повернення до календаря."""
     builder = InlineKeyboardBuilder()
     if registration_open:
-        builder.button(text="🔴 Закрити реєстрацію", callback_data="registration_close", style="danger")
+        builder.button(text="🔴 Закрити зараз", callback_data="registration_close", style="danger")
     else:
-        builder.button(text="🟢 Відкрити реєстрацію", callback_data="registration_open", style="success")
+        builder.button(text="🟢 Відкрити зараз", callback_data="registration_open", style="success")
+    if manual:
+        builder.button(text="📆 Повернути за календарем", callback_data="registration_auto")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_registration_move_confirm_kb(iso_day: str) -> InlineKeyboardMarkup:
+    """Підтвердження перенесення старту набору (/registration <дата>)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Перенести", callback_data=f"registration_move:{iso_day}", style="success")
+    builder.button(text="Скасувати", callback_data="registration_move_cancel")
     return builder.as_markup()

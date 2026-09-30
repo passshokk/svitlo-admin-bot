@@ -29,7 +29,8 @@
         {"code": "26-27_01",
          "from": <14.09.2026 00:00>, "to": <25.10.2026 23:59:59>,   # shopping -> кінець term
          "periods": [
-           {"kind": "admission", "from": ..., "to": ...},
+           {"kind": "admission", "from": ..., "to": ...,
+            "movedFrom": ...},   # лише якщо старт переносили /registration <дата>
            {"kind": "induction", ...}, {"kind": "shopping", ...}, {"kind": "term", ...},
          ]},
         ...
@@ -351,9 +352,10 @@ class Calendar:
         найближчих МІЖСЕМЕСТРОВИХ канікул (див. докстрінг модуля).
 
         Літні свідомо не рахуються: це кінець року, а не пауза між наборами.
-        Після останнього семестру функція віддає None, і виклична сторона
-        відкочується на ручний `nextRegistrationDate` — дату наступного
-        навчального року все одно призначає овнер, а не календар."""
+        Після останнього семестру функція віддає None: набір наступного
+        навчального року з'явиться разом із його календарем. Ручного
+        `nextRegistrationDate` більше немає (прибране 30.09.2026) — ранній
+        старт набору переносить сам календар (бот, core/registration.py)."""
         segment = self.next_segment(KIND_ADMISSION, after)
         return segment.start if segment else None
 
@@ -465,6 +467,10 @@ def to_kyiv_bounds(window: tuple[date, date]) -> tuple[datetime, datetime]:
 # схвалення заявки. TTL більший (10 хв), бо календар правлять раз на рік.
 _CACHE: "tuple[float, Calendar] | None" = None
 _TTL = 600.0
+# Збій ЧИТАННЯ (не відсутність документа) кешуємо ненадовго: з 30.09.2026
+# від календаря залежить, чи відкрита реєстрація, і мережевий збій не має
+# закривати її на всі 10 хвилин.
+_ERROR_TTL = 30.0
 _LOCK = asyncio.Lock()
 
 
@@ -476,10 +482,12 @@ async def load_calendar() -> Calendar:
     async with _LOCK:
         if _CACHE and time.monotonic() < _CACHE[0]:
             return _CACHE[1]
+        ttl = _TTL
         try:
             doc = await db.collection(CALENDAR_DOC[0]).document(CALENDAR_DOC[1]).get()
             raw = doc.to_dict() if doc.exists else None
         except Exception:
+            ttl = _ERROR_TTL
             # Календар — не критичний шлях: без нього панель має працювати
             # на старій вільнотекстовій конфігурації, а не віддавати 500.
             logging.exception("Не вдалося прочитати Config/academic_calendar")
@@ -487,7 +495,7 @@ async def load_calendar() -> Calendar:
         calendar = Calendar(raw)
         if raw and (problems := calendar.validate()):
             logging.warning("Календар має проблеми покриття: %s", "; ".join(problems))
-        _CACHE = (time.monotonic() + _TTL, calendar)
+        _CACHE = (time.monotonic() + ttl, calendar)
         return calendar
 
 

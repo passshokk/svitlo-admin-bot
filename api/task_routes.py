@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request, Response
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from google.cloud.firestore_v1.base_query import FieldFilter
 import core.database as db
+from core import registration
 import core.config as cfg
 import core.schooltoday as schooltoday
 from core.bot_init import bot
@@ -232,8 +233,9 @@ async def task_send_reminder(request: Request):
         if (data.get("followupStep") or 0) >= step:
             return Response(status_code=200)
 
-        # Реєстрацію призупинено овнером — не турбуємо лідів новими нагадуваннями.
-        if not await db.get_registration_open():
+        # Реєстрацію закрито (набір скінчився або овнер закрив вручну) — не
+        # турбуємо лідів новими нагадуваннями.
+        if not await registration.is_registration_open():
             return Response(status_code=200)
 
         telegram_id = data.get("telegramId")
